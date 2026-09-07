@@ -2,6 +2,17 @@
 
 from minerva.domaine import EmpanDePreuve, Fiche, RoleEmpan, VerdictItem
 from minerva.evaluation import evaluer
+from minerva.registre import RegistreDItems
+from tests.fabriques import item
+
+
+def registre_plat(*identifiants: str) -> RegistreDItems:
+    """Un Registre sans aucune porte : rien n'est jamais Non-applicable.
+
+    Ces tests portent sur les F1 et l'ancrage, pas sur le graphe de saut, qui a ses
+    propres tests dans test_registre.py et test_applicabilite.py.
+    """
+    return RegistreDItems(items=[item(ident) for ident in identifiants])
 
 
 def fiche(**etats: tuple[bool, bool]) -> Fiche:
@@ -37,7 +48,7 @@ def test_f1_par_item_macro_moyenne_sur_le_corpus() -> None:
         ),
     ]
 
-    mesures = evaluer(paires)
+    mesures = evaluer(paires, registre_plat("A1", "A2", "A3"))
 
     assert mesures.sollicite.f1 == 2 / 3
     assert mesures.renseigne.f1 == 1.0
@@ -50,7 +61,7 @@ def test_sollicite_et_renseigne_sont_mesures_separement() -> None:
     """
     paires = [(fiche(A1=(True, True)), fiche(A1=(True, False)))]
 
-    mesures = evaluer(paires)
+    mesures = evaluer(paires, registre_plat("A1", "A2", "A3"))
 
     assert mesures.sollicite.rappel == 1.0
     assert mesures.renseigne.rappel == 0.0
@@ -67,7 +78,7 @@ def test_item_sans_aucun_positif_est_ecarte_et_non_compte_zero() -> None:
         (fiche(A1=(True, False), A3=(False, False)), fiche(A1=(True, False), A3=(False, False)))
     ]
 
-    mesures = evaluer(paires)
+    mesures = evaluer(paires, registre_plat("A1", "A2", "A3"))
 
     assert mesures.sollicite.items_ecartes == ("A3",)
     assert mesures.renseigne.items_ecartes == ("A1", "A3")
@@ -121,7 +132,7 @@ def test_taux_ancrage_compte_les_verdicts_justes_dont_l_empan_tombe_au_bon_endro
         ]
     )
 
-    mesures = evaluer([(reference, prediction)])
+    mesures = evaluer([(reference, prediction)], registre_plat("A1", "A2"))
 
     assert mesures.taux_ancrage == 2 / 3
 
@@ -136,7 +147,7 @@ def test_un_verdict_faux_positif_n_entre_pas_dans_l_ancrage() -> None:
         verdicts=[verdict("A1", True, True, tours_sollicitation=(0,), tours_renseignement=(2,))]
     )
 
-    mesures = evaluer([(reference, prediction)])
+    mesures = evaluer([(reference, prediction)], registre_plat("A1", "A2"))
 
     assert mesures.taux_ancrage == 1.0
 
@@ -155,7 +166,7 @@ def test_le_f1_de_chaque_item_reste_lisible_sous_la_moyenne() -> None:
         ),
     ]
 
-    mesures = evaluer(paires)
+    mesures = evaluer(paires, registre_plat("A1", "A2", "A3"))
 
     assert mesures.sollicite.par_item == {"A1": 2 / 3, "A2": 2 / 3}
     assert mesures.renseigne.par_item == {"A1": 1.0, "A2": 1.0}

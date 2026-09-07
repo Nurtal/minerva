@@ -128,7 +128,7 @@ def test_de_la_specification_aux_chiffres() -> None:
 
     entretien = generer(specification, registre, modele)
     prediction = detecter(entretien.retranscription, registre, modele)
-    mesures = evaluer([(entretien.reference, prediction)])
+    mesures = evaluer([(entretien.reference, prediction)], registre)
 
     assert prediction.identifiants() == entretien.reference.identifiants()
     assert mesures.sollicite.f1 == 1.0

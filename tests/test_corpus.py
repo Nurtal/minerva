@@ -18,14 +18,24 @@ from minerva.domaine import (
     VerdictItem,
 )
 from minerva.modele import AdaptateurFactice
-from minerva.registre import Item, RegistreDItems, registre_module_a_reduit
+from minerva.registre import RegistreDItems, registre_module_a_reduit
+from tests.fabriques import item
 
 
-def specification(**etats: tuple[bool, bool]) -> Specification:
+def specification(
+    polarites: dict[str, bool] | None = None, **etats: tuple[bool, bool]
+) -> Specification:
+    polarites = polarites or {}
     return Specification(
         fiche_visee=Fiche(
             verdicts=[
-                VerdictItem(identifiant=ident, sollicite=sol, renseigne=ren, empans=[])
+                VerdictItem(
+                    identifiant=ident,
+                    sollicite=sol,
+                    renseigne=ren,
+                    positif=polarites.get(ident),
+                    empans=[],
+                )
                 for ident, (sol, ren) in etats.items()
             ]
         )
@@ -138,8 +148,8 @@ def test_un_verdict_positif_sans_empan_est_refuse() -> None:
 def registre_deux_modules() -> RegistreDItems:
     return RegistreDItems(
         items=[
-            Item(identifiant="A1", module="A", construct_sonde="humeur", source="test"),
-            Item(identifiant="B1", module="B", construct_sonde="idées noires", source="test"),
+            item("A1"),
+            item("B1", module="B"),
         ]
     )
 
@@ -265,3 +275,66 @@ def test_un_empan_dont_le_passage_ne_figure_pas_dans_le_tour_est_refuse() -> Non
             registre_module_a_reduit(),
             AdaptateurFactice([genere]),
         )
+
+
+def test_une_polarite_sur_un_item_non_filtre_est_ecartee_de_la_reference() -> None:
+    """ADR-0006 vaut aux deux frontières, pas seulement à celle de la détection.
+
+    Une Fiche de référence qui porterait une polarité sur un Item de symptôme serait une
+    cotation stockée — ce que l'ADR-0001 interdit et que l'ADR-0006 n'excepte que pour les
+    Items filtres.
+    """
+    genere = entretien_genere(
+        [VerdictItem(identifiant="A3a", sollicite=False, renseigne=False, positif=True, empans=[])]
+    )
+
+    entretien = generer(
+        specification(A1=(False, False), A2=(False, False), A3a=(False, False)),
+        registre_module_a_reduit(),
+        AdaptateurFactice([genere]),
+    )
+
+    assert entretien.reference.par_identifiant()["A3a"].positif is None
+
+
+def entretien_avec(identifiant: str, positif: bool | None) -> Entretien:
+    return entretien_genere(
+        [
+            VerdictItem(
+                identifiant=identifiant,
+                sollicite=True,
+                renseigne=True,
+                positif=positif,
+                empans=[
+                    EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="tour 0"),
+                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="tour 1"),
+                ],
+            )
+        ]
+    )
+
+
+def test_la_polarite_commandee_par_la_specification_est_verifiee() -> None:
+    """Sans ce contrôle, la seconde jambe de la double dérivation n'a pas de vérité terrain.
+
+    La Spécification commande un filtre négatif ; le modèle rend un filtre positif. Si on
+    laissait passer, le graphe déroulé sur la référence dirait autre chose que ce qui a été
+    commandé, et l'écart mesuré côté prédiction ne voudrait plus rien dire.
+    """
+    with pytest.raises(GenerationInfidele, match="polarité"):
+        generer(
+            specification({"A1": False}, A1=(True, True), A2=(False, False), A3a=(False, False)),
+            registre_module_a_reduit(),
+            AdaptateurFactice([entretien_avec("A1", positif=True)]),
+        )
+
+
+def test_la_reference_porte_la_polarite_commandee() -> None:
+    """Ce qui rend le graphe déroulable sur la référence de bout en bout."""
+    entretien = generer(
+        specification({"A1": False}, A1=(True, True), A2=(False, False), A3a=(False, False)),
+        registre_module_a_reduit(),
+        AdaptateurFactice([entretien_avec("A1", positif=False)]),
+    )
+
+    assert entretien.reference.par_identifiant()["A1"].positif is False

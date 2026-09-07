@@ -27,6 +27,12 @@ Pour chaque empan, recopie aussi le passage exact qui l'établit : un extrait li
 tour cité, pas une reformulation. Cite le fragment utile, pas le tour entier.
 
 Ne cote pas les items et ne pose aucun diagnostic : dis seulement ce que l'entretien couvre.
+Seule exception, pour les items filtres listés ci-dessous et pour eux seuls : dis en plus
+si la réponse était positive ou négative, dans le champ positif. C'est ce qui permet de
+savoir si la suite du module était légitimement écartée. Laisse ce champ vide si
+l'entretien ne permet pas de trancher.
+
+Items filtres de ce module : {filtres}
 
 Items du module {module} :
 {items}
@@ -51,15 +57,23 @@ def detecter(
     modèle invente est écarté : le périmètre est celui du Registre, pas celui du modèle.
     """
     verdicts: list[VerdictItem] = []
+    filtres = registre.items_filtres()
     for module in registre.modules():
+        items = registre.items_du_module(module)
+        filtres_du_module = sorted(
+            item.identifiant for item in items if item.identifiant in filtres
+        )
         prompt = _CONSIGNE.format(
             module=module,
             items=registre.decrire_module(module),
+            filtres=", ".join(filtres_du_module) or "aucun",
             entretien=_rendre_entretien(retranscription),
         )
         rendus = modele.repondre(prompt, Fiche).par_identifiant()
-        verdicts.extend(
-            rendus.get(item.identifiant) or VerdictItem.negatif(item.identifiant)
-            for item in registre.items_du_module(module)
-        )
+        for item in items:
+            verdict = rendus.get(item.identifiant) or VerdictItem.negatif(item.identifiant)
+            if item.identifiant not in filtres:
+                # ADR-0006 : hors des Items filtres, MINERVA ne conserve aucune polarité.
+                verdict = verdict.model_copy(update={"positif": None})
+            verdicts.append(verdict)
     return Fiche(verdicts=verdicts)

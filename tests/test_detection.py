@@ -17,7 +17,8 @@ from minerva.domaine import (
     VerdictItem,
 )
 from minerva.modele import AdaptateurFactice, ReponseIncoherente
-from minerva.registre import registre_module_a_reduit
+from minerva.registre import Porte, RegistreDItems, registre_module_a_reduit
+from tests.fabriques import item
 
 
 def retranscription() -> Retranscription:
@@ -90,3 +91,61 @@ def test_l_adaptateur_factice_refuse_une_reponse_du_mauvais_type() -> None:
 
     with pytest.raises(ReponseIncoherente):
         detecter(retranscription(), registre_module_a_reduit(), adaptateur)
+
+
+def registre_avec_filtre() -> RegistreDItems:
+    return RegistreDItems(
+        items=[
+            item("A1"),
+            item("A3a"),
+        ],
+        portes_de_module={"A": Porte(au_moins=1, parmi=["A1"])},
+    )
+
+
+def test_la_polarite_est_conservee_pour_un_item_filtre() -> None:
+    """Le graphe de saut a besoin de savoir si le filtre était positif ou négatif."""
+    rendu = Fiche(
+        verdicts=[
+            VerdictItem(
+                identifiant="A1",
+                sollicite=True,
+                renseigne=True,
+                positif=False,
+                empans=[
+                    EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="moral"),
+                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Très bas"),
+                ],
+            )
+        ]
+    )
+
+    fiche = detecter(retranscription(), registre_avec_filtre(), AdaptateurFactice([rendu]))
+
+    assert fiche.par_identifiant()["A1"].positif is False
+
+
+def test_la_polarite_offerte_pour_un_item_non_filtre_est_ecartee() -> None:
+    """ADR-0006 ouvre une exception étroite : hors des Items filtres, MINERVA ne code rien.
+
+    Le modèle peut proposer une polarité pour n'importe quel item ; c'est le Registre qui
+    décide de laquelle le graphe a besoin, et le reste est jeté.
+    """
+    rendu = Fiche(
+        verdicts=[
+            VerdictItem(
+                identifiant="A3a",
+                sollicite=True,
+                renseigne=True,
+                positif=True,
+                empans=[
+                    EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="moral"),
+                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Très bas"),
+                ],
+            )
+        ]
+    )
+
+    fiche = detecter(retranscription(), registre_avec_filtre(), AdaptateurFactice([rendu]))
+
+    assert fiche.par_identifiant()["A3a"].positif is None
