@@ -35,8 +35,11 @@ def test_de_la_specification_aux_chiffres() -> None:
     exploitable, A3a non abordé. La détection retrouve tout sauf qu'elle croit A2
     renseigné : un faux positif.
 
-    Sollicité — A1 et A2 justes, A3a écarté faute de positif. Macro = 1.
-    Renseigné — A1 juste (F1 1), A2 faux positif (F1 0), A3a écarté. Macro = 1/2.
+    Le cadre temporel du module n'est jamais établi non plus, ce qui est un entretien
+    imparfait mais parfaitement représentable.
+
+    Sollicité — A1 et A2 justes ; A3a et A_cadre écartés faute de positif. Macro = 1.
+    Renseigné — A1 juste (F1 1), A2 faux positif (F1 0), A3a et A_cadre écartés. Macro = 1/2.
     Ancrage  — trois verdicts justes, tous ancrés au bon tour. Le faux positif sur A2
                n'entre pas au dénominateur. Taux = 1.
     """
@@ -48,6 +51,7 @@ def test_de_la_specification_aux_chiffres() -> None:
                 VerdictItem(identifiant="A1", sollicite=True, renseigne=True, empans=[]),
                 VerdictItem(identifiant="A2", sollicite=True, renseigne=False, empans=[]),
                 VerdictItem(identifiant="A3a", sollicite=False, renseigne=False, empans=[]),
+                VerdictItem(identifiant="A_cadre", sollicite=False, renseigne=False, empans=[]),
             ]
         )
     )
@@ -91,6 +95,7 @@ def test_de_la_specification_aux_chiffres() -> None:
                     ],
                 ),
                 VerdictItem(identifiant="A3a", sollicite=False, renseigne=False, empans=[]),
+                VerdictItem(identifiant="A_cadre", sollicite=False, renseigne=False, empans=[]),
             ]
         ),
     )
@@ -133,5 +138,5 @@ def test_de_la_specification_aux_chiffres() -> None:
     assert prediction.identifiants() == entretien.reference.identifiants()
     assert mesures.sollicite.f1 == 1.0
     assert mesures.renseigne.f1 == 0.5
-    assert mesures.renseigne.items_ecartes == ("A3a",)
+    assert mesures.renseigne.items_ecartes == ("A3a", "A_cadre")
     assert mesures.taux_ancrage == 1.0

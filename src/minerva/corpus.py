@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from minerva.domaine import Entretien, Fiche, Propriete, Retranscription, VerdictItem
 from minerva.modele import PortModele
 from minerva.registre import RegistreDItems
+from minerva.rendu import decrire_module
 
 
 class GenerationInfidele(RuntimeError):
@@ -78,7 +79,7 @@ def _rendre_commande(specification: Specification, registre: RegistreDItems) -> 
 
 def _rendre_items(registre: RegistreDItems) -> str:
     return "\n".join(
-        f"{module} :\n{registre.decrire_module(module)}" for module in registre.modules()
+        f"{module} :\n{decrire_module(registre, module)}" for module in registre.modules()
     )
 
 

@@ -77,15 +77,19 @@ Propriété d'un item dont le contenu a été demandé par un tour de parole du 
 _Éviter_ : posé, demandé, abordé, exploré
 
 **Renseigné** :
-Propriété d'un item pour lequel l'entretien fournit de quoi le coter selon les critères du MINI. Un item peut être renseigné sans avoir été sollicité, lorsque le patient en apporte spontanément le contenu.
+Propriété d'un item dont l'entretien fournit le contenu. Un item peut être renseigné sans avoir été sollicité, lorsque le patient l'apporte spontanément. Ne dit rien du cadre : le contenu seul ne suffit pas à coter.
 _Éviter_ : récupéré, obtenu, couvert, rempli, complété
+
+**Cotable** :
+Propriété d'un item renseigné dont le qualificatif de son module est lui-même renseigné — un contenu et son cadre, ce que le MINI exige pour coter. Dire qu'un item est cotable n'est pas le coter : MINERVA ne produit aucune valeur.
+_Éviter_ : scorable, exploitable, valide, complet
 
 **Non-applicable** :
 Propriété d'un item dont une porte est établie et négative. Un item non-applicable n'est pas un oubli. Une porte indéterminée n'écarte rien : ne pas avoir demandé n'excuse pas.
 _Éviter_ : sauté, ignoré, hors périmètre, N/A
 
 **Fiche** :
-L'ensemble des verdicts d'un Entretien, un par Item du Registre. La Spécification en porte une et la détection en rend une : c'est le même type des deux côtés, ce qui fait de l'évaluation un diff.
+L'ensemble des verdicts d'un Entretien, un par entrée du Registre — items et qualificatifs. La Spécification en porte une et la détection en rend une : c'est le même type des deux côtés, ce qui fait de l'évaluation un diff.
 _Éviter_ : rapport, résultat, sortie, grille
 
 **Empan de preuve** :

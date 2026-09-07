@@ -8,6 +8,7 @@ modèle rende — c'est la contrainte de forme qui fait de l'évaluation un diff
 from minerva.domaine import Fiche, Retranscription, VerdictItem
 from minerva.modele import PortModele
 from minerva.registre import RegistreDItems
+from minerva.rendu import decrire_entretien, decrire_module
 
 _CONSIGNE = """\
 Tu analyses la retranscription d'un entretien psychiatrique entre un clinicien et son patient.
@@ -42,12 +43,6 @@ Entretien :
 """
 
 
-def _rendre_entretien(retranscription: Retranscription) -> str:
-    return "\n".join(
-        f"[{tour.indice}] {tour.locuteur.value} : {tour.texte}" for tour in retranscription.tours
-    )
-
-
 def detecter(
     retranscription: Retranscription, registre: RegistreDItems, modele: PortModele
 ) -> Fiche:
@@ -59,20 +54,18 @@ def detecter(
     verdicts: list[VerdictItem] = []
     filtres = registre.items_filtres()
     for module in registre.modules():
-        items = registre.items_du_module(module)
-        filtres_du_module = sorted(
-            item.identifiant for item in items if item.identifiant in filtres
-        )
+        entrees = registre.entrees_du_module(module)
+        filtres_du_module = sorted(identifiant for identifiant in entrees if identifiant in filtres)
         prompt = _CONSIGNE.format(
             module=module,
-            items=registre.decrire_module(module),
+            items=decrire_module(registre, module),
             filtres=", ".join(filtres_du_module) or "aucun",
-            entretien=_rendre_entretien(retranscription),
+            entretien=decrire_entretien(retranscription),
         )
         rendus = modele.repondre(prompt, Fiche).par_identifiant()
-        for item in items:
-            verdict = rendus.get(item.identifiant) or VerdictItem.negatif(item.identifiant)
-            if item.identifiant not in filtres:
+        for identifiant in entrees:
+            verdict = rendus.get(identifiant) or VerdictItem.negatif(identifiant)
+            if identifiant not in filtres:
                 # ADR-0006 : hors des Items filtres, MINERVA ne conserve aucune polarité.
                 verdict = verdict.model_copy(update={"positif": None})
             verdicts.append(verdict)

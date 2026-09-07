@@ -17,18 +17,22 @@ PaireFiches = tuple[Fiche, Fiche]
 
 @dataclass(frozen=True)
 class MesureBinaire:
-    """Le résultat sur une propriété booléenne, macro-moyenné sur les Items.
+    """Le résultat sur une propriété booléenne, macro-moyenné sur les entrées du Registre.
 
-    Un Item sans aucun positif — ni en référence, ni en prédiction — est écarté plutôt
-    que compté comme un échec : il n'est pas mesurable sur ce corpus, et le compter
-    zéro noierait le signal des Items réellement évalués.
+    La moyenne porte sur **toutes** les entrées, Qualificatifs compris : détecter le cadre
+    temporel d'un Module est une tâche de détection comme une autre, et l'écarter
+    masquerait un échec réel. Un Qualificatif pèse donc autant qu'un Item.
+
+    Une entrée sans aucun positif — ni en référence, ni en prédiction — est écartée plutôt
+    que comptée comme un échec : elle n'est pas mesurable sur ce corpus, et la compter
+    zéro noierait le signal des entrées réellement évaluées (ADR-0005).
     """
 
     precision: float
     rappel: float
     f1: float
     par_item: dict[str, float]
-    """Le F1 de chaque Item mesurable, pour savoir lequel décroche sous la moyenne."""
+    """Le F1 de chaque entrée mesurable, pour savoir laquelle décroche sous la moyenne."""
     items_ecartes: tuple[str, ...]
 
 
@@ -56,7 +60,7 @@ class MesurePropagation:
 class ConduiteDEntretien:
     """Ce que le graphe révèle de l'Entretien lui-même, lu sur la référence.
 
-    Ne parle pas du détecteur : ces deux listes décrivent la conduite du Clinicien, et
+    Ne parle pas du détecteur : ces listes décrivent la conduite du Clinicien, et
     resteraient vraies avec une détection parfaite.
     """
 
@@ -71,6 +75,12 @@ class ConduiteDEntretien:
 
     Un Item que le Patient a renseigné de lui-même n'en est pas : reprocher la question
     non posée quand la réponse est là n'aurait pas de sens.
+    """
+    non_cotables_faute_de_cadre: dict[str, int]
+    """Items dont le contenu est obtenu mais que le Qualificatif du Module ne rend pas cotables.
+
+    Reproche distinct de l'oubli : les questions ont été posées, c'est l'ancienneté des
+    troubles qui n'a jamais été établie — et sans elle le MINI ne cote rien.
     """
 
 
@@ -190,9 +200,12 @@ def _applicabilite(
     retenus_a_tort: Counter[str] = Counter()
     inutiles: Counter[str] = Counter()
     oublis: Counter[str] = Counter()
+    sans_cadre: Counter[str] = Counter()
 
     for reference, prediction in paires:
+        renseignes = {verdict.identifiant for verdict in reference.verdicts if verdict.renseigne}
         selon_reference = registre.non_applicables(reference.polarites())
+        cotables = registre.cotables(renseignes, selon_reference)
         selon_prediction = registre.non_applicables(prediction.polarites())
         verdicts_reference = reference.par_identifiant()
 
@@ -215,6 +228,8 @@ def _applicabilite(
                 inutiles[identifiant] += 1
             elif not ecarte_reference and not sollicite and not renseigne:
                 oublis[identifiant] += 1
+            if renseigne and identifiant in renseignes - cotables:
+                sans_cadre[identifiant] += 1
 
     return (
         MesurePropagation(
@@ -225,6 +240,7 @@ def _applicabilite(
         ConduiteDEntretien(
             questions_inutiles=dict(sorted(inutiles.items())),
             oublis=dict(sorted(oublis.items())),
+            non_cotables_faute_de_cadre=dict(sorted(sans_cadre.items())),
         ),
     )
 
