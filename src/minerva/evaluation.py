@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from minerva.domaine import AxeDeStyle, Fiche, IdentiteModele, Propriete, Style
+from minerva.domaine import AxeDeStyle, Entretien, Fiche, IdentiteModele, Propriete, Style
 from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
@@ -196,22 +196,33 @@ class Contamination(RuntimeError):
 
 
 @dataclass(frozen=True)
-class ScoresParProvenance:
-    """Les chiffres d'un détecteur selon qui a écrit ce qu'il lit.
+class MesuresParProvenance:
+    """Les chiffres d'un détecteur selon la parenté de qui a écrit ce qu'il lit.
 
-    L'écart entre les deux est le résultat, pas un sous-produit : il mesure combien le
-    détecteur doit à la parenté de son générateur plutôt qu'à son exactitude (ADR-0004).
+    L'écart entre intra-famille et croisé est le résultat, pas un sous-produit : il mesure
+    combien le détecteur doit à la parenté de son générateur plutôt qu'à son exactitude.
+    La partition neutre est à part, et c'est la seule des trois qui soit une référence
+    propre (ADR-0004).
     """
 
     intra_famille: Mesures | None
-    """Contre des Entretiens écrits par un autre modèle de la même famille."""
+    """Contre des Entretiens écrits par un autre modèle de la même famille que le détecteur."""
     croise: Mesures | None
-    """Contre des Entretiens écrits par une autre famille."""
-    ecart_rappel_renseigne: float | None
-    """Rappel intra moins rappel croisé, sur la métrique de tête. `None` s'il manque un côté.
+    """Contre des Entretiens écrits par une autre famille du panel."""
+    neutre: Mesures | None
+    """Contre des Entretiens écrits hors de toute famille du panel — la référence propre."""
 
-    Un écart incalculable vaut mieux qu'un zéro, qui se lirait comme « pas de biais ».
-    """
+    @property
+    def ecart_rappel_renseigne(self) -> float | None:
+        """Rappel intra moins rappel croisé, sur la métrique de tête.
+
+        `None` s'il manque un côté : un écart incalculable vaut mieux qu'un zéro, qui se
+        lirait comme « aucune parenté ne joue ». Dérivé plutôt que stocké, pour qu'il ne
+        puisse pas contredire les mesures dont il sort.
+        """
+        if self.intra_famille is None or self.croise is None:
+            return None
+        return self.intra_famille.renseigne.rappel - self.croise.renseigne.rappel
 
 
 @dataclass(frozen=True)
@@ -225,18 +236,50 @@ class EntretienEvalue:
     style: Style
     reference: Fiche
     prediction: Fiche
-    generateur: IdentiteModele | None = None
-    """Qui a écrit l'Entretien — ce qui décide de quel côté de l'écart il tombe."""
+    generateur: IdentiteModele
+    """Qui a écrit l'Entretien — ce qui décide de quel côté de l'écart il tombe.
+
+    Exigé, sans valeur par défaut : un Entretien de provenance inconnue rendrait la règle
+    de non-contamination dépendante de la vigilance de l'appelant, ce qu'elle existe
+    précisément pour éviter (ADR-0004).
+    """
+
+    @classmethod
+    def depuis(cls, entretien: Entretien, prediction: Fiche) -> "EntretienEvalue":
+        """Apparie un Entretien généré à la Fiche prédite pour lui.
+
+        Le Style et le générateur suivent l'Entretien plutôt que d'être recopiés à la
+        main : un ré-appariement manuel est une erreur silencieuse et irrattrapable. Une
+        provenance inconnue est refusée ici, au moment de l'appariement, et non perdue
+        plus loin au moment de l'analyse.
+        """
+        if entretien.generateur is None:
+            raise Contamination(
+                "provenance inconnue : cet Entretien n'est pas sorti de `generer`, donc "
+                "rien ne permet de dire s'il contamine le détecteur qui va le lire"
+            )
+        return cls(
+            style=entretien.style,
+            reference=entretien.reference,
+            prediction=prediction,
+            generateur=entretien.generateur,
+        )
 
 
 def evaluer_par_provenance(
     detecteur: IdentiteModele,
+    panel: Sequence[IdentiteModele],
     entretiens: Sequence[EntretienEvalue],
     registre: RegistreDItems,
-) -> ScoresParProvenance:
+) -> MesuresParProvenance:
     """Ventile les chiffres d'un détecteur selon la parenté de qui a écrit ce qu'il lit.
 
-    Refuse les Entretiens que le détecteur a lui-même écrits : là, il retrouverait ses
+    Trois provenances, et non deux : un générateur de la famille du détecteur, un
+    générateur d'une autre famille du panel, et un générateur étranger à toute famille du
+    panel — le seul qui soit une référence propre.
+
+    Refuse les Entretiens que le détecteur a lui-même écrits, y compris sous un nom qui
+    n'en diffère que par la casse ou par une version épinglée : là, il retrouverait ses
     propres régularités et l'on mesurerait une auto-cohérence en croyant mesurer une
     exactitude.
     """
@@ -244,7 +287,7 @@ def evaluer_par_provenance(
         {
             entretien.generateur.nom
             for entretien in entretiens
-            if entretien.generateur is not None and entretien.generateur.nom == detecteur.nom
+            if entretien.generateur.est_le_meme_que(detecteur)
         }
     )
     if contaminants:
@@ -253,26 +296,24 @@ def evaluer_par_provenance(
             f"{', '.join(contaminants)} — c'est lui-même"
         )
 
+    familles_du_panel = {identite.famille for identite in panel}
     intra: list[PaireFiches] = []
     croise: list[PaireFiches] = []
+    neutre: list[PaireFiches] = []
     for entretien in entretiens:
-        if entretien.generateur is None:
-            continue
         paire = (entretien.reference, entretien.prediction)
-        if entretien.generateur.famille == detecteur.famille:
+        famille = entretien.generateur.famille
+        if famille == detecteur.famille:
             intra.append(paire)
-        else:
+        elif famille in familles_du_panel:
             croise.append(paire)
+        else:
+            neutre.append(paire)
 
-    mesures_intra = evaluer(intra, registre) if intra else None
-    mesures_croise = evaluer(croise, registre) if croise else None
-    ecart = (
-        mesures_intra.renseigne.rappel - mesures_croise.renseigne.rappel
-        if mesures_intra is not None and mesures_croise is not None
-        else None
-    )
-    return ScoresParProvenance(
-        intra_famille=mesures_intra, croise=mesures_croise, ecart_rappel_renseigne=ecart
+    return MesuresParProvenance(
+        intra_famille=evaluer(intra, registre) if intra else None,
+        croise=evaluer(croise, registre) if croise else None,
+        neutre=evaluer(neutre, registre) if neutre else None,
     )
 
 

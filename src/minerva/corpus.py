@@ -11,14 +11,16 @@ confondus. Générer Module par Module puis recoller donnerait des indices de To
 et des Empans pointant sur les Tours d'un autre Module.
 """
 
-from collections.abc import Set as AbstractSet
+from collections.abc import Sequence
 from enum import StrEnum
 
 from pydantic import BaseModel, model_validator
 
 from minerva.domaine import (
+    CorpusSynthetique,
     Entretien,
     Fiche,
+    IdentiteModele,
     Propriete,
     Retranscription,
     Style,
@@ -111,56 +113,6 @@ class Specification(BaseModel):
     """Les difficultés que l'Entretien devra réaliser, chacune rattachée à sa cible."""
     style: Style = Style()
     """Les axes de style, en variables contrôlées — c'est par eux qu'on ventile les chiffres."""
-
-
-class CorpusSynthetique(BaseModel):
-    """Les Entretiens générés, chacun sachant de quel modèle il vient.
-
-    Le partitionnement n'est pas une vue posée sur le Corpus après coup : c'est sa
-    structure. La règle de non-contamination ne se rattrape pas au moment de l'analyse,
-    donc un Entretien de provenance inconnue n'y entre pas.
-    """
-
-    entretiens: list[Entretien]
-
-    @model_validator(mode="after")
-    def _provenance_connue(self) -> "CorpusSynthetique":
-        orphelins = [
-            indice
-            for indice, entretien in enumerate(self.entretiens)
-            if entretien.generateur is None
-        ]
-        if orphelins:
-            raise ValueError(
-                f"entretiens sans générateur aux positions {orphelins} : on ne pourrait "
-                "pas dire s'ils contaminent un détecteur, et la règle reposerait sur la "
-                "vigilance du lecteur"
-            )
-        return self
-
-    def partitions(self) -> dict[str, list[Entretien]]:
-        """Les Entretiens groupés par nom de générateur."""
-        groupes: dict[str, list[Entretien]] = {}
-        for entretien in self.entretiens:
-            if entretien.generateur is not None:
-                groupes.setdefault(entretien.generateur.nom, []).append(entretien)
-        return groupes
-
-    def generateurs(self) -> set[str]:
-        return set(self.partitions())
-
-    def partition_neutre(self, detecteurs: AbstractSet[str]) -> list[Entretien]:
-        """Les Entretiens qu'aucun détecteur n'a écrits — la référence propre.
-
-        Vide si chaque partition a été produite par un détecteur : le Corpus n'a alors
-        aucune référence propre, et il vaut mieux le lire dans le résultat que le
-        supposer.
-        """
-        return [
-            entretien
-            for entretien in self.entretiens
-            if entretien.generateur is not None and entretien.generateur.nom not in detecteurs
-        ]
 
 
 _CONSIGNE = """\
@@ -403,4 +355,25 @@ def generer(
         reference=_verifier(produit, specification, registre),
         style=specification.style,
         generateur=modele.identite,
+    )
+
+
+def generer_corpus(
+    specifications: Sequence[Specification],
+    registre: RegistreDItems,
+    generateurs: Sequence[PortModele],
+) -> CorpusSynthetique:
+    """Fait réaliser les mêmes Spécifications par chaque générateur.
+
+    Les partitions ne diffèrent alors que par qui les a écrites : mêmes commandes, mêmes
+    difficultés imposées, mêmes axes de style. C'est ce qui rend l'écart entre partitions
+    attribuable au générateur plutôt qu'au tirage, et donc lisible comme un biais de
+    génération.
+    """
+    return CorpusSynthetique(
+        entretiens=[
+            generer(specification, registre, generateur)
+            for generateur in generateurs
+            for specification in specifications
+        ]
     )

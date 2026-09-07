@@ -42,14 +42,8 @@ def test_la_chaine_tourne_contre_un_modele_reel() -> None:
     prediction = detecter(entretien.retranscription, registre, detecteur)
     scores = evaluer_par_provenance(
         detecteur.identite,
-        [
-            EntretienEvalue(
-                style=entretien.style,
-                reference=entretien.reference,
-                prediction=prediction,
-                generateur=entretien.generateur,
-            )
-        ],
+        [detecteur.identite],
+        [EntretienEvalue.depuis(entretien, prediction)],
         registre,
     )
 
@@ -63,3 +57,4 @@ def test_la_chaine_tourne_contre_un_modele_reel() -> None:
     assert scores.intra_famille is not None
     assert 0.0 <= scores.intra_famille.renseigne.rappel <= 1.0
     assert scores.croise is None, "une seule famille en jeu : rien à croiser"
+    assert scores.neutre is None, "aucun générateur étranger au panel : pas de référence propre"

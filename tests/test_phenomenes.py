@@ -33,6 +33,7 @@ from minerva.domaine import (
     VerdictItem,
 )
 from minerva.evaluation import EntretienEvalue, evaluer, evaluer_par_axe
+from minerva.domaine import IdentiteModele
 from minerva.modele import AdaptateurFactice, ReponseIncoherente
 from minerva.registre import RegistreDItems, registre_module_a_reduit
 from tests.fabriques import item
@@ -41,6 +42,8 @@ from tests.fabriques import item
 def registre_plat(*identifiants: str) -> RegistreDItems:
     return RegistreDItems(items=[item(ident) for ident in identifiants])
 
+
+GENERATEUR = IdentiteModele(nom="factice", famille="factice")
 
 TOUT_ETEINT = {
     "A1": (False, False),
@@ -236,11 +239,13 @@ def test_les_chiffres_se_ventilent_par_axe_de_style() -> None:
             style=Style(loquacite=Loquacite.LACONIQUE),
             reference=fiche(A1=(True, True)),
             prediction=rate,
+            generateur=GENERATEUR,
         ),
         EntretienEvalue(
             style=Style(loquacite=Loquacite.PROLIXE),
             reference=fiche(A1=(True, True)),
             prediction=parfait,
+            generateur=GENERATEUR,
         ),
     ]
 
@@ -258,11 +263,13 @@ def test_un_axe_sans_variation_rend_un_seul_groupe() -> None:
             style=Style(loquacite=Loquacite.LACONIQUE),
             reference=fiche(A1=(True, True)),
             prediction=fiche(A1=(True, True)),
+            generateur=GENERATEUR,
         ),
         EntretienEvalue(
             style=Style(loquacite=Loquacite.PROLIXE),
             reference=fiche(A1=(True, True)),
             prediction=fiche(A1=(True, True)),
+            generateur=GENERATEUR,
         ),
     ]
 

@@ -9,8 +9,9 @@ au moment de l'analyse.
 import pytest
 from pydantic import ValidationError
 
-from minerva.corpus import CorpusSynthetique, Specification, generer
+from minerva.corpus import Specification, generer
 from minerva.domaine import (
+    CorpusSynthetique,
     EmpanDePreuve,
     Entretien,
     Fiche,
@@ -123,25 +124,29 @@ def test_un_entretien_de_provenance_inconnue_n_a_pas_sa_place_dans_un_corpus() -
         CorpusSynthetique(entretiens=[entretien_vide()])
 
 
-def test_la_partition_neutre_est_celle_qu_aucun_detecteur_n_a_ecrite() -> None:
-    """La référence propre : un modèle absent de l'ensemble des détecteurs l'a produite."""
+def test_un_frere_de_famille_n_est_pas_une_reference_propre() -> None:
+    """La référence propre s'entend au niveau de la famille, pas du nom.
+
+    Un modèle absent du panel mais frère d'un détecteur partage ses régularités : le
+    prendre pour référence propre reviendrait à mesurer le biais avec le biais.
+    """
     corpus = CorpusSynthetique(
         entretiens=[entretien_de(CLAUDE), entretien_de(MISTRAL), entretien_de(AUTRE_CLAUDE)]
     )
 
-    neutre = corpus.partition_neutre({"claude-opus-5", "mistral-large"})
+    neutre = corpus.partition_neutre([CLAUDE])
 
-    assert [entretien.generateur for entretien in neutre] == [AUTRE_CLAUDE]
+    assert [entretien.generateur for entretien in neutre] == [MISTRAL]
 
 
 def test_un_corpus_sans_partition_neutre_le_dit() -> None:
-    """Un corpus dont chaque partition a été écrite par un détecteur n'a aucune référence propre.
+    """Un corpus dont chaque partition est parente d'un détecteur n'a aucune référence propre.
 
     Le silence donnerait un benchmark qu'on croit propre alors qu'il ne l'est pas.
     """
     corpus = CorpusSynthetique(entretiens=[entretien_de(CLAUDE), entretien_de(MISTRAL)])
 
-    assert corpus.partition_neutre({"claude-opus-5", "mistral-large"}) == []
+    assert corpus.partition_neutre([CLAUDE, MISTRAL]) == []
 
 
 def fiche(**etats: tuple[bool, bool]) -> Fiche:
@@ -174,6 +179,7 @@ def test_un_modele_ne_peut_pas_etre_evalue_sur_ce_qu_il_a_ecrit() -> None:
     with pytest.raises(Contamination, match="claude-opus-5"):
         evaluer_par_provenance(
             CLAUDE,
+            [CLAUDE, MISTRAL],
             [evalue(CLAUDE, fiche(A1=(True, True)))],
             registre_plat("A1"),
         )
@@ -187,6 +193,7 @@ def test_l_ecart_entre_intra_famille_et_croise_mesure_le_biais_de_generation() -
     """
     scores = evaluer_par_provenance(
         CLAUDE,
+        [CLAUDE, MISTRAL],
         [
             evalue(AUTRE_CLAUDE, fiche(A1=(True, True))),
             evalue(MISTRAL, fiche(A1=(False, False))),
@@ -204,8 +211,72 @@ def test_l_ecart_entre_intra_famille_et_croise_mesure_le_biais_de_generation() -
 def test_sans_partition_croisee_l_ecart_n_est_pas_calculable() -> None:
     """Un écart incalculable vaut mieux qu'un zéro, qui se lirait comme « pas de biais »."""
     scores = evaluer_par_provenance(
-        CLAUDE, [evalue(AUTRE_CLAUDE, fiche(A1=(True, True)))], registre_plat("A1")
+        CLAUDE, [CLAUDE], [evalue(AUTRE_CLAUDE, fiche(A1=(True, True)))], registre_plat("A1")
     )
 
     assert scores.croise is None
     assert scores.ecart_rappel_renseigne is None
+
+
+def test_une_partition_etrangere_au_panel_est_la_seule_reference_propre() -> None:
+    """Trois provenances, pas deux : la neutre ne doit pas se confondre avec le croisé.
+
+    Un générateur d'une autre famille du panel partage tout de même le monde des
+    détecteurs ; un générateur étranger au panel est le seul dont on puisse dire qu'aucun
+    détecteur ne lui doit quoi que ce soit.
+    """
+    ETRANGER = IdentiteModele(nom="qwen-3", famille="qwen")
+
+    scores = evaluer_par_provenance(
+        CLAUDE,
+        [CLAUDE, MISTRAL],
+        [
+            evalue(AUTRE_CLAUDE, fiche(A1=(True, True))),
+            evalue(MISTRAL, fiche(A1=(True, True))),
+            evalue(ETRANGER, fiche(A1=(True, True))),
+        ],
+        registre_plat("A1"),
+    )
+
+    assert scores.intra_famille is not None
+    assert scores.croise is not None
+    assert scores.neutre is not None
+
+
+def test_un_nom_epingle_ou_de_casse_differente_ne_franchit_pas_la_garde() -> None:
+    """La garde se trompe du côté sûr : deux noms qui se recouvrent sont le même modèle.
+
+    « claude-opus-5 » et « claude-opus-5-20250101 » désignent le même modèle épinglé
+    autrement, et la casse ne doit jamais décider d'une contamination.
+    """
+    epingle = IdentiteModele(nom="Claude-Opus-5-20250101", famille="Anthropic")
+
+    with pytest.raises(Contamination):
+        evaluer_par_provenance(
+            CLAUDE, [CLAUDE], [evalue(epingle, fiche(A1=(True, True)))], registre_plat("A1")
+        )
+
+
+def test_un_entretien_non_issu_de_la_generation_est_refuse_a_l_appariement() -> None:
+    """La provenance inconnue est refusée là où elle se voit, pas perdue au moment d'analyser.
+
+    C'est ce que veut dire « la contrainte ne se rattrape pas au moment de l'analyse » :
+    le refus doit tomber quand on apparie, pas se dissoudre en un entretien silencieusement
+    ignoré dans les chiffres.
+    """
+    with pytest.raises(Contamination, match="provenance inconnue"):
+        EntretienEvalue.depuis(entretien_vide(), fiche(A1=(True, True)))
+
+
+def test_l_appariement_fait_suivre_le_style_et_le_generateur() -> None:
+    """Le pont entre un Entretien généré et son évaluation ne se fait pas à la main."""
+    entretien = generer(
+        specification_eteinte(),
+        registre_module_a_reduit(),
+        AdaptateurFactice([entretien_vide()], identite=MISTRAL),
+    )
+
+    apparie = EntretienEvalue.depuis(entretien, fiche(A1=(True, True)))
+
+    assert apparie.generateur == MISTRAL
+    assert apparie.style == entretien.style

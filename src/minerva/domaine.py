@@ -5,9 +5,10 @@ bout en bout : la Spécification en porte une, la détection en rend une, l'éva
 en compare deux. C'est la contrainte de forme du projet.
 """
 
+from collections.abc import Sequence
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 Polarite = bool | None
 """Vrai, faux, ou indéterminé — la réponse à un Item filtre du graphe de saut."""
@@ -182,8 +183,26 @@ class IdentiteModele(BaseModel):
     est précisément ce qui mesure le biais de génération (ADR-0004).
     """
 
+    model_config = ConfigDict(frozen=True)
+
     nom: str
     famille: str
+
+    @field_validator("nom", "famille", mode="after")
+    @classmethod
+    def _normaliser(cls, valeur: str) -> str:
+        """Casse et espaces ne doivent pas décider d'une contamination."""
+        return valeur.strip().casefold()
+
+    def est_le_meme_que(self, autre: "IdentiteModele") -> bool:
+        """Deux identités désignent-elles le même modèle ?
+
+        Un nom préfixe de l'autre suffit à le croire — « claude-opus-5 » et
+        « claude-opus-5-20250101 » sont le même modèle épinglé différemment. La garde de
+        contamination se trompe du côté sûr : deux modèles réellement distincts dont les
+        noms se recouvrent doivent être désambiguïsés explicitement.
+        """
+        return self.nom.startswith(autre.nom) or autre.nom.startswith(self.nom)
 
 
 class AxeDeStyle(StrEnum):
@@ -223,3 +242,54 @@ class Entretien(BaseModel):
     `None` pour un Entretien qui n'est pas sorti de `generer` — sa provenance est alors
     inconnue, et il n'a pas sa place dans un Corpus soumis à la règle de non-contamination.
     """
+
+
+class CorpusSynthetique(BaseModel):
+    """Les Entretiens générés, chacun sachant de quel modèle il vient.
+
+    Le partitionnement n'est pas une vue posée sur le Corpus après coup : c'est sa
+    structure. La règle de non-contamination ne se rattrape pas au moment de l'analyse,
+    donc un Entretien de provenance inconnue n'y entre pas.
+    """
+
+    entretiens: list[Entretien]
+
+    @model_validator(mode="after")
+    def _provenance_connue(self) -> "CorpusSynthetique":
+        orphelins = [
+            indice
+            for indice, entretien in enumerate(self.entretiens)
+            if entretien.generateur is None
+        ]
+        if orphelins:
+            raise ValueError(
+                f"entretiens sans générateur aux positions {orphelins} : on ne pourrait "
+                "pas dire s'ils contaminent un détecteur, et la règle reposerait sur la "
+                "vigilance du lecteur"
+            )
+        return self
+
+    def partitions(self) -> dict[str, list[Entretien]]:
+        """Les Entretiens groupés par nom de générateur."""
+        par_generateur: dict[str, list[Entretien]] = {}
+        for entretien in self.entretiens:
+            if entretien.generateur is not None:
+                par_generateur.setdefault(entretien.generateur.nom, []).append(entretien)
+        return par_generateur
+
+    def partition_neutre(self, panel: Sequence[IdentiteModele]) -> list[Entretien]:
+        """Les Entretiens qu'aucun détecteur ni aucun de ses parents n'a écrits.
+
+        La référence propre s'entend au niveau de la **famille**, pas du nom : un modèle
+        absent du panel mais frère d'un détecteur partage ses régularités, et le prendre
+        pour référence propre reviendrait à mesurer le biais avec le biais.
+
+        Vide quand le Corpus n'a aucune partition étrangère au panel — mieux vaut le lire
+        dans le résultat que le supposer.
+        """
+        familles = {identite.famille for identite in panel}
+        return [
+            entretien
+            for entretien in self.entretiens
+            if entretien.generateur is not None and entretien.generateur.famille not in familles
+        ]
