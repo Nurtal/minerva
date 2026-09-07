@@ -173,6 +173,19 @@ class Style(BaseModel):
     directivite: Directivite = Directivite.SEMI_DIRECTIF
 
 
+class IdentiteModele(BaseModel):
+    """Qui a produit quelque chose : un modèle, et la famille dont il relève.
+
+    La famille est plus grossière que le nom, délibérément. Un détecteur ne doit jamais
+    être évalué sur ce qu'il a lui-même écrit ; mais son score contre un frère de sa
+    propre famille reste intéressant, et son écart avec le score contre une autre famille
+    est précisément ce qui mesure le biais de génération (ADR-0004).
+    """
+
+    nom: str
+    famille: str
+
+
 class AxeDeStyle(StrEnum):
     """Les axes selon lesquels on ventile les chiffres.
 
@@ -204,3 +217,9 @@ class Entretien(BaseModel):
     retranscription: Retranscription
     reference: Fiche
     style: Style = Style()
+    generateur: IdentiteModele | None = None
+    """Le modèle qui a écrit cet Entretien, apposé à la génération.
+
+    `None` pour un Entretien qui n'est pas sorti de `generer` — sa provenance est alors
+    inconnue, et il n'a pas sa place dans un Corpus soumis à la règle de non-contamination.
+    """

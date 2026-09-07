@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from minerva.domaine import AxeDeStyle, Fiche, Propriete, Style
+from minerva.domaine import AxeDeStyle, Fiche, IdentiteModele, Propriete, Style
 from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
@@ -191,6 +191,29 @@ def _ancrage(paires: Sequence[PaireFiches]) -> float:
     return ancres / total if total else 0.0
 
 
+class Contamination(RuntimeError):
+    """On a voulu évaluer un modèle sur des Entretiens qu'il a lui-même écrits."""
+
+
+@dataclass(frozen=True)
+class ScoresParProvenance:
+    """Les chiffres d'un détecteur selon qui a écrit ce qu'il lit.
+
+    L'écart entre les deux est le résultat, pas un sous-produit : il mesure combien le
+    détecteur doit à la parenté de son générateur plutôt qu'à son exactitude (ADR-0004).
+    """
+
+    intra_famille: Mesures | None
+    """Contre des Entretiens écrits par un autre modèle de la même famille."""
+    croise: Mesures | None
+    """Contre des Entretiens écrits par une autre famille."""
+    ecart_rappel_renseigne: float | None
+    """Rappel intra moins rappel croisé, sur la métrique de tête. `None` s'il manque un côté.
+
+    Un écart incalculable vaut mieux qu'un zéro, qui se lirait comme « pas de biais ».
+    """
+
+
 @dataclass(frozen=True)
 class EntretienEvalue:
     """Une Fiche de référence, la Fiche prédite, et le Style sous lequel l'Entretien fut produit.
@@ -202,6 +225,55 @@ class EntretienEvalue:
     style: Style
     reference: Fiche
     prediction: Fiche
+    generateur: IdentiteModele | None = None
+    """Qui a écrit l'Entretien — ce qui décide de quel côté de l'écart il tombe."""
+
+
+def evaluer_par_provenance(
+    detecteur: IdentiteModele,
+    entretiens: Sequence[EntretienEvalue],
+    registre: RegistreDItems,
+) -> ScoresParProvenance:
+    """Ventile les chiffres d'un détecteur selon la parenté de qui a écrit ce qu'il lit.
+
+    Refuse les Entretiens que le détecteur a lui-même écrits : là, il retrouverait ses
+    propres régularités et l'on mesurerait une auto-cohérence en croyant mesurer une
+    exactitude.
+    """
+    contaminants = sorted(
+        {
+            entretien.generateur.nom
+            for entretien in entretiens
+            if entretien.generateur is not None and entretien.generateur.nom == detecteur.nom
+        }
+    )
+    if contaminants:
+        raise Contamination(
+            f"{detecteur.nom} ne peut pas être évalué sur des Entretiens écrits par "
+            f"{', '.join(contaminants)} — c'est lui-même"
+        )
+
+    intra: list[PaireFiches] = []
+    croise: list[PaireFiches] = []
+    for entretien in entretiens:
+        if entretien.generateur is None:
+            continue
+        paire = (entretien.reference, entretien.prediction)
+        if entretien.generateur.famille == detecteur.famille:
+            intra.append(paire)
+        else:
+            croise.append(paire)
+
+    mesures_intra = evaluer(intra, registre) if intra else None
+    mesures_croise = evaluer(croise, registre) if croise else None
+    ecart = (
+        mesures_intra.renseigne.rappel - mesures_croise.renseigne.rappel
+        if mesures_intra is not None and mesures_croise is not None
+        else None
+    )
+    return ScoresParProvenance(
+        intra_famille=mesures_intra, croise=mesures_croise, ecart_rappel_renseigne=ecart
+    )
 
 
 def evaluer_par_axe(

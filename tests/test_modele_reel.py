@@ -13,7 +13,7 @@ import pytest
 from minerva.corpus import Specification, generer
 from minerva.detection import detecter
 from minerva.domaine import Fiche, Locuteur, VerdictItem
-from minerva.evaluation import evaluer
+from minerva.evaluation import EntretienEvalue, evaluer_par_provenance
 from minerva.modele import AdaptateurAnthropic
 from minerva.registre import registre_module_a_reduit
 
@@ -32,14 +32,26 @@ def test_la_chaine_tourne_contre_un_modele_reel() -> None:
             ]
         )
     )
-    # Le même modèle génère et détecte : ADR-0004 interdit d'en tirer une mesure, et ce
-    # test n'en tire aucune — il vérifie la mécanique, pas la qualité. Le partitionnement
-    # du corpus par générateur est le ticket dédié.
-    modele = AdaptateurAnthropic()
+    # Deux modèles distincts, comme l'exige ADR-0004 : un détecteur n'est jamais évalué
+    # sur ce qu'il a lui-même écrit. Ils restent de la même famille, donc ce passage est
+    # un score intra-famille — jamais une référence propre.
+    generateur = AdaptateurAnthropic(modele="claude-haiku-4-5")
+    detecteur = AdaptateurAnthropic()
 
-    entretien = generer(specification, registre, modele)
-    prediction = detecter(entretien.retranscription, registre, modele)
-    mesures = evaluer([(entretien.reference, prediction)], registre)
+    entretien = generer(specification, registre, generateur)
+    prediction = detecter(entretien.retranscription, registre, detecteur)
+    scores = evaluer_par_provenance(
+        detecteur.identite,
+        [
+            EntretienEvalue(
+                style=entretien.style,
+                reference=entretien.reference,
+                prediction=prediction,
+                generateur=entretien.generateur,
+            )
+        ],
+        registre,
+    )
 
     assert entretien.retranscription.tours, "le modèle doit produire un entretien non vide"
     assert all(
@@ -47,5 +59,7 @@ def test_la_chaine_tourne_contre_un_modele_reel() -> None:
         for tour in entretien.retranscription.tours
     )
     assert prediction.identifiants() == entretien.reference.identifiants()
-    # Aucune assertion sur la valeur : ce serait une mesure, et elle serait contaminée.
-    assert 0.0 <= mesures.renseigne.rappel <= 1.0
+    # Aucune assertion sur la valeur : ce test garantit la mécanique, jamais la qualité.
+    assert scores.intra_famille is not None
+    assert 0.0 <= scores.intra_famille.renseigne.rappel <= 1.0
+    assert scores.croise is None, "une seule famille en jeu : rien à croiser"
