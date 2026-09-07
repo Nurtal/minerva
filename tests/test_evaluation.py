@@ -2,7 +2,8 @@
 
 from minerva.domaine import EmpanDePreuve, Fiche, RoleEmpan, VerdictItem
 from minerva.evaluation import evaluer
-from minerva.registre import Item, RegistreDItems
+from minerva.registre import RegistreDItems
+from tests.fabriques import item
 
 
 def registre_plat(*identifiants: str) -> RegistreDItems:
@@ -11,12 +12,7 @@ def registre_plat(*identifiants: str) -> RegistreDItems:
     Ces tests portent sur les F1 et l'ancrage, pas sur le graphe de saut, qui a ses
     propres tests dans test_registre.py et test_applicabilite.py.
     """
-    return RegistreDItems(
-        items=[
-            Item(identifiant=ident, module="A", construct_sonde="peu importe", source="test")
-            for ident in identifiants
-        ]
-    )
+    return RegistreDItems(items=[item(ident) for ident in identifiants])
 
 
 def fiche(**etats: tuple[bool, bool]) -> Fiche:

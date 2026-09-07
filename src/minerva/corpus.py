@@ -50,6 +50,9 @@ Rappels :
   été posée ou que le patient l'ait apporté de lui-même ;
 - un item peut être renseigné sans avoir été sollicité, et sollicité sans être renseigné.
 
+Quand la commande porte un champ positif, c'est un item filtre : l'entretien doit établir
+sa réponse dans ce sens-là, et tu le rapportes dans le champ positif du verdict.
+
 Pour chaque propriété vraie, cite les tours qui l'établissent par leur indice : role
 "sollicitation" pour un tour du clinicien, "renseignement" pour un tour du patient. Pour
 chaque empan, recopie le passage exact — un extrait littéral du tour cité, pas une
@@ -62,10 +65,15 @@ Items :
 
 def _rendre_commande(specification: Specification, registre: RegistreDItems) -> str:
     vises = specification.fiche_visee.par_identifiant()
-    return "\n".join(
-        f"- {ident} : sollicite={vises[ident].sollicite}, renseigne={vises[ident].renseigne}"
-        for ident in registre.identifiants()
-    )
+    filtres = registre.items_filtres()
+    lignes = []
+    for ident in registre.identifiants():
+        vise = vises[ident]
+        ligne = f"- {ident} : sollicite={vise.sollicite}, renseigne={vise.renseigne}"
+        if ident in filtres and vise.positif is not None:
+            ligne += f", positif={vise.positif}"
+        lignes.append(ligne)
+    return "\n".join(lignes)
 
 
 def _rendre_items(registre: RegistreDItems) -> str:
@@ -103,6 +111,7 @@ def _verifier(produit: Entretien, specification: Specification, registre: Regist
     tours = {tour.indice: tour for tour in produit.retranscription.tours}
     vises = specification.fiche_visee.par_identifiant()
     rendus = produit.reference.par_identifiant()
+    filtres = registre.items_filtres()
     reference: list[VerdictItem] = []
 
     for identifiant in registre.identifiants():
@@ -122,6 +131,13 @@ def _verifier(produit: Entretien, specification: Specification, registre: Regist
                     "pas une vérité terrain"
                 )
 
+        if identifiant in filtres and obtenu.positif is not attendu.positif:
+            raise GenerationInfidele(
+                f"{identifiant} : polarité commandée à {attendu.positif}, "
+                f"obtenu {obtenu.positif} — la référence doit porter ce qui a été commandé, "
+                "sans quoi le graphe déroulé sur elle dit autre chose que la commande"
+            )
+
         for empan in obtenu.empans:
             tour = tours.get(empan.indice_tour)
             if tour is None:
@@ -139,6 +155,9 @@ def _verifier(produit: Entretien, specification: Specification, registre: Regist
                     f"ne figure pas dans ce tour"
                 )
 
+        if identifiant not in filtres:
+            # ADR-0006 : la portée de l'exception vaut aussi à cette frontière-ci.
+            obtenu = obtenu.model_copy(update={"positif": None})
         reference.append(obtenu)
 
     return Fiche(verdicts=reference)

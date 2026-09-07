@@ -9,6 +9,9 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+Polarite = bool | None
+"""Vrai, faux, ou indéterminé — la réponse à un Item filtre du graphe de saut."""
+
 
 class Locuteur(StrEnum):
     """Qui parle dans un Tour de parole."""
@@ -92,7 +95,7 @@ class VerdictItem(BaseModel):
     sollicite: bool
     renseigne: bool
     empans: list[EmpanDePreuve]
-    positif: bool | None = None
+    positif: Polarite = None
     """Polarité, pour les seuls Items filtres du graphe de saut — voir ADR-0006.
 
     `None` signifie indéterminée : soit l'Item n'est pas un filtre et MINERVA ne le code
@@ -127,7 +130,7 @@ class Fiche(BaseModel):
     def identifiants(self) -> set[str]:
         return {verdict.identifiant for verdict in self.verdicts}
 
-    def polarites(self) -> dict[str, bool | None]:
+    def polarites(self) -> dict[str, Polarite]:
         """Les polarités portées par cette Fiche, pour dérouler le graphe de saut."""
         return {verdict.identifiant: verdict.positif for verdict in self.verdicts}
 

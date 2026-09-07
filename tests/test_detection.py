@@ -17,7 +17,8 @@ from minerva.domaine import (
     VerdictItem,
 )
 from minerva.modele import AdaptateurFactice, ReponseIncoherente
-from minerva.registre import Condition, Item, RegistreDItems, registre_module_a_reduit
+from minerva.registre import Porte, RegistreDItems, registre_module_a_reduit
+from tests.fabriques import item
 
 
 def retranscription() -> Retranscription:
@@ -95,10 +96,10 @@ def test_l_adaptateur_factice_refuse_une_reponse_du_mauvais_type() -> None:
 def registre_avec_filtre() -> RegistreDItems:
     return RegistreDItems(
         items=[
-            Item(identifiant="A1", module="A", construct_sonde="humeur", source="test"),
-            Item(identifiant="A3a", module="A", construct_sonde="sommeil", source="test"),
+            item("A1"),
+            item("A3a"),
         ],
-        portes_de_module={"A": Condition(au_moins=1, parmi=["A1"])},
+        portes_de_module={"A": Porte(au_moins=1, parmi=["A1"])},
     )
 
 
@@ -113,9 +114,7 @@ def test_la_polarite_est_conservee_pour_un_item_filtre() -> None:
                 positif=False,
                 empans=[
                     EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="moral"),
-                    EmpanDePreuve(
-                        indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Très bas"
-                    ),
+                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Très bas"),
                 ],
             )
         ]
@@ -141,9 +140,7 @@ def test_la_polarite_offerte_pour_un_item_non_filtre_est_ecartee() -> None:
                 positif=True,
                 empans=[
                     EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="moral"),
-                    EmpanDePreuve(
-                        indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Très bas"
-                    ),
+                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Très bas"),
                 ],
             )
         ]

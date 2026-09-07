@@ -10,14 +10,13 @@ MINI, et non la couverture du MINI.
 
 from collections.abc import Mapping
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
-Polarite = bool | None
-"""Vrai, faux, ou indéterminé — l'état d'un Item filtre pour la logique de saut."""
+from minerva.domaine import Polarite
 
 
-class Condition(BaseModel):
-    """Une porte du graphe de saut : au moins `au_moins` opérandes vrais parmi `parmi`.
+class Porte(BaseModel):
+    """Au moins `au_moins` opérandes vrais parmi `parmi`.
 
     Cette forme unique couvre les trois shapes du MINI : un ET est `au_moins` égal au
     nombre d'opérandes, un OU est `au_moins` à un, et un comptage — « deux réponses ou
@@ -26,8 +25,23 @@ class Condition(BaseModel):
     (G1a ET G1b ET G2) OU (G3a ET G3b).
     """
 
-    au_moins: int
-    parmi: list["str | Condition"]
+    au_moins: int = Field(ge=1)
+    parmi: list["str | Porte"]
+    source: str | None = None
+    """La source publiée dont cette porte est tirée — ADR-0003.
+
+    Renseignée pour une porte du Registre, absente pour une sous-porte, qui n'est pas
+    une entrée mais un morceau de la porte qui la contient.
+    """
+
+    @model_validator(mode="after")
+    def _verifier_atteignable(self) -> "Porte":
+        if self.au_moins > len(self.parmi):
+            raise ValueError(
+                f"porte inatteignable : {self.au_moins} opérandes vrais exigés parmi "
+                f"{len(self.parmi)} — elle serait toujours fausse"
+            )
+        return self
 
     def identifiants(self) -> set[str]:
         """Les Items dont cette porte a besoin — ceux dont la polarité doit être connue."""
@@ -66,7 +80,7 @@ class Condition(BaseModel):
         return None
 
 
-Condition.model_rebuild()
+Porte.model_rebuild()
 
 
 class Item(BaseModel):
@@ -76,7 +90,7 @@ class Item(BaseModel):
     module: str
     construct_sonde: str
     source: str
-    porte: Condition | None = None
+    porte: Porte | None = None
     """Porte du second étage : ce qui doit être vrai pour que cet Item soit attendu."""
 
 
@@ -84,7 +98,7 @@ class RegistreDItems(BaseModel):
     """Les Items connus de MINERVA, groupés par Module."""
 
     items: list[Item]
-    portes_de_module: dict[str, Condition] = {}
+    portes_de_module: dict[str, Porte] = {}
     """Portes du premier étage : le filtre en tête de chaque Module qui en a un."""
 
     def modules(self) -> list[str]:
@@ -124,19 +138,20 @@ class RegistreDItems(BaseModel):
         Un Item qui sert lui-même de filtre à son Module n'est jamais écarté par ce
         filtre — c'est la question d'entrée, elle est toujours attendue.
         """
-        ecartes: set[str] = set()
-        for item in self.items:
-            porte_module = self.portes_de_module.get(item.module)
-            filtre_de_son_module = (
-                porte_module is not None and item.identifiant in porte_module.identifiants()
-            )
+        modules_fermes = {
+            module: porte.identifiants()
+            for module, porte in self.portes_de_module.items()
+            if porte.evaluer(polarites) is False
+        }
+        return {
+            item.identifiant
+            for item in self.items
             if (
-                porte_module is not None
-                and not filtre_de_son_module
-                and porte_module.evaluer(polarites) is False
-            ) or (item.porte is not None and item.porte.evaluer(polarites) is False):
-                ecartes.add(item.identifiant)
-        return ecartes
+                item.module in modules_fermes
+                and item.identifiant not in modules_fermes[item.module]
+            )
+            or (item.porte is not None and item.porte.evaluer(polarites) is False)
+        }
 
     def decrire_module(self, module: str) -> str:
         """Les Items d'un Module tels qu'on les présente à un modèle."""
@@ -156,7 +171,13 @@ def registre_module_a_reduit() -> RegistreDItems:
         portes_de_module={
             # Le filtre en tête du Module A : humeur dépressive OU perte d'intérêt.
             # Établi négatif sur les deux, le reste du Module est légitimement écarté.
-            "A": Condition(au_moins=1, parmi=["A1", "A2"]),
+            "A": Porte(
+                au_moins=1,
+                parmi=["A1", "A2"],
+                source="APA, DSM-5-TR (2022) : l'épisode dépressif caractérisé requiert "
+                "l'humeur dépressive ou la perte d'intérêt ; structure de la question de "
+                "filtre en tête de module.",
+            ),
         },
         items=[
             Item(
@@ -188,5 +209,5 @@ def registre_module_a_reduit() -> RegistreDItems:
                 source="APA, DSM-5-TR (2022), critère A4 de l'épisode dépressif caractérisé ; "
                 "recoupé par le PHQ-9 item 3 (Kroenke, Spitzer & Williams, 2001).",
             ),
-        ]
+        ],
     )

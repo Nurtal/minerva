@@ -57,9 +57,9 @@ def detecter(
     modèle invente est écarté : le périmètre est celui du Registre, pas celui du modèle.
     """
     verdicts: list[VerdictItem] = []
+    filtres = registre.items_filtres()
     for module in registre.modules():
         items = registre.items_du_module(module)
-        filtres = registre.items_filtres()
         filtres_du_module = sorted(
             item.identifiant for item in items if item.identifiant in filtres
         )

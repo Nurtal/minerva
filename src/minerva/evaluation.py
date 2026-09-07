@@ -4,6 +4,7 @@ L'évaluation est un diff entre deux objets de même type : c'est ce que garanti
 contrainte de forme, et c'est ce qui rend cette couche vérifiable sans réseau.
 """
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -32,23 +33,45 @@ class MesureBinaire:
 
 
 @dataclass(frozen=True)
-class MesureApplicabilite:
-    """Ce que le graphe de saut dit, dérivé deux fois, et ce qu'il révèle de l'Entretien.
+class MesurePropagation:
+    """Ce que devient le graphe selon qu'on le déroule sur les prédictions ou la référence.
 
-    Les deux premiers champs séparent l'erreur de propagation de l'erreur de détection ;
-    les deux derniers ne parlent plus du détecteur mais du Clinicien.
+    Parle du détecteur : c'est ce qui isole l'erreur de propagation — un filtre mal détecté
+    fait tomber tout un Module — de l'erreur de détection item par item.
     """
 
     accord: float
     """Part des Items où l'applicabilité dérivée des prédictions rejoint celle de référence."""
-    ecartes_a_tort: tuple[str, ...]
-    """Items que la prédiction écarte alors que la référence les attendait : l'effondrement."""
-    retenus_a_tort: tuple[str, ...]
-    """Items que la prédiction attend alors que la référence les écartait."""
-    questions_inutiles: tuple[str, ...]
-    """Items écartés par le graphe et pourtant sollicités par le Clinicien."""
-    oublis: tuple[str, ...]
-    """Items attendus par le graphe et que le Clinicien n'a pas sollicités."""
+    ecartes_a_tort: dict[str, int]
+    """Items que la prédiction écarte alors que la référence les attendait : l'effondrement.
+
+    Compté par Entretien, pas seulement nommé : un effondrement sur un Entretien et un
+    effondrement sur cent ne sont pas le même défaut.
+    """
+    retenus_a_tort: dict[str, int]
+    """Items que la prédiction attend alors que la référence les écartait, par Entretien."""
+
+
+@dataclass(frozen=True)
+class ConduiteDEntretien:
+    """Ce que le graphe révèle de l'Entretien lui-même, lu sur la référence.
+
+    Ne parle pas du détecteur : ces deux listes décrivent la conduite du Clinicien, et
+    resteraient vraies avec une détection parfaite.
+    """
+
+    questions_inutiles: dict[str, int]
+    """Items écartés par le graphe et pourtant sollicités : la question qui ne servait à rien.
+
+    Compté par Entretien. Un même Item peut être une question inutile ici et un oubli là ;
+    une union d'identifiants effacerait la distinction au moment où le corpus grandit.
+    """
+    oublis: dict[str, int]
+    """Items attendus, non sollicités, et dont l'Entretien n'a pas obtenu le contenu.
+
+    Un Item que le Patient a renseigné de lui-même n'en est pas : reprocher la question
+    non posée quand la réponse est là n'aurait pas de sens.
+    """
 
 
 @dataclass(frozen=True)
@@ -62,7 +85,8 @@ class Mesures:
     sollicite: MesureBinaire
     renseigne: MesureBinaire
     taux_ancrage: float
-    applicabilite: MesureApplicabilite
+    propagation: MesurePropagation
+    conduite: ConduiteDEntretien
 
 
 @dataclass(frozen=True)
@@ -159,13 +183,13 @@ def _ancrage(paires: Sequence[PaireFiches]) -> float:
 
 def _applicabilite(
     paires: Sequence[PaireFiches], registre: RegistreDItems
-) -> MesureApplicabilite:
+) -> tuple[MesurePropagation, ConduiteDEntretien]:
     identifiants = registre.identifiants()
     accords = total = 0
-    ecartes_a_tort: set[str] = set()
-    retenus_a_tort: set[str] = set()
-    inutiles: set[str] = set()
-    oublis: set[str] = set()
+    ecartes_a_tort: Counter[str] = Counter()
+    retenus_a_tort: Counter[str] = Counter()
+    inutiles: Counter[str] = Counter()
+    oublis: Counter[str] = Counter()
 
     for reference, prediction in paires:
         selon_reference = registre.non_applicables(reference.polarites())
@@ -179,24 +203,29 @@ def _applicabilite(
             if ecarte_reference == ecarte_prediction:
                 accords += 1
             elif ecarte_prediction:
-                ecartes_a_tort.add(identifiant)
+                ecartes_a_tort[identifiant] += 1
             else:
-                retenus_a_tort.add(identifiant)
+                retenus_a_tort[identifiant] += 1
 
             # Le croisement décrit l'Entretien, pas le détecteur : il se lit sur la référence.
             verdict = verdicts_reference.get(identifiant)
             sollicite = bool(verdict and verdict.sollicite)
+            renseigne = bool(verdict and verdict.renseigne)
             if ecarte_reference and sollicite:
-                inutiles.add(identifiant)
-            elif not ecarte_reference and not sollicite:
-                oublis.add(identifiant)
+                inutiles[identifiant] += 1
+            elif not ecarte_reference and not sollicite and not renseigne:
+                oublis[identifiant] += 1
 
-    return MesureApplicabilite(
-        accord=accords / total if total else 0.0,
-        ecartes_a_tort=tuple(sorted(ecartes_a_tort)),
-        retenus_a_tort=tuple(sorted(retenus_a_tort)),
-        questions_inutiles=tuple(sorted(inutiles)),
-        oublis=tuple(sorted(oublis)),
+    return (
+        MesurePropagation(
+            accord=accords / total if total else 0.0,
+            ecartes_a_tort=dict(sorted(ecartes_a_tort.items())),
+            retenus_a_tort=dict(sorted(retenus_a_tort.items())),
+        ),
+        ConduiteDEntretien(
+            questions_inutiles=dict(sorted(inutiles.items())),
+            oublis=dict(sorted(oublis.items())),
+        ),
     )
 
 
@@ -207,9 +236,11 @@ def evaluer(paires: Sequence[PaireFiches], registre: RegistreDItems) -> Mesures:
     sur les Items — un F1 par Item n'aurait aucun sens sur un seul Entretien, où chaque
     Item ne fournit qu'une observation.
     """
+    propagation, conduite = _applicabilite(paires, registre)
     return Mesures(
         sollicite=_mesurer(paires, Propriete.SOLLICITE),
         renseigne=_mesurer(paires, Propriete.RENSEIGNE),
         taux_ancrage=_ancrage(paires),
-        applicabilite=_applicabilite(paires, registre),
+        propagation=propagation,
+        conduite=conduite,
     )
