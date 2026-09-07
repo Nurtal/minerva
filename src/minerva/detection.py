@@ -59,10 +59,8 @@ def detecter(
     verdicts: list[VerdictItem] = []
     filtres = registre.items_filtres()
     for module in registre.modules():
-        items = registre.items_du_module(module)
-        filtres_du_module = sorted(
-            item.identifiant for item in items if item.identifiant in filtres
-        )
+        entrees = registre.entrees_du_module(module)
+        filtres_du_module = sorted(identifiant for identifiant in entrees if identifiant in filtres)
         prompt = _CONSIGNE.format(
             module=module,
             items=registre.decrire_module(module),
@@ -70,9 +68,9 @@ def detecter(
             entretien=_rendre_entretien(retranscription),
         )
         rendus = modele.repondre(prompt, Fiche).par_identifiant()
-        for item in items:
-            verdict = rendus.get(item.identifiant) or VerdictItem.negatif(item.identifiant)
-            if item.identifiant not in filtres:
+        for identifiant in entrees:
+            verdict = rendus.get(identifiant) or VerdictItem.negatif(identifiant)
+            if identifiant not in filtres:
                 # ADR-0006 : hors des Items filtres, MINERVA ne conserve aucune polarité.
                 verdict = verdict.model_copy(update={"positif": None})
             verdicts.append(verdict)

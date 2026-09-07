@@ -72,6 +72,12 @@ class ConduiteDEntretien:
     Un Item que le Patient a renseigné de lui-même n'en est pas : reprocher la question
     non posée quand la réponse est là n'aurait pas de sens.
     """
+    non_cotables_faute_de_cadre: dict[str, int]
+    """Items dont le contenu est obtenu mais que le Qualificatif du Module ne rend pas cotables.
+
+    Reproche distinct de l'oubli : les questions ont été posées, c'est l'ancienneté des
+    troubles qui n'a jamais été établie — et sans elle le MINI ne cote rien.
+    """
 
 
 @dataclass(frozen=True)
@@ -190,8 +196,10 @@ def _applicabilite(
     retenus_a_tort: Counter[str] = Counter()
     inutiles: Counter[str] = Counter()
     oublis: Counter[str] = Counter()
+    sans_cadre: Counter[str] = Counter()
 
     for reference, prediction in paires:
+        effectifs = registre.renseignes_effectifs(reference)
         selon_reference = registre.non_applicables(reference.polarites())
         selon_prediction = registre.non_applicables(prediction.polarites())
         verdicts_reference = reference.par_identifiant()
@@ -215,6 +223,8 @@ def _applicabilite(
                 inutiles[identifiant] += 1
             elif not ecarte_reference and not sollicite and not renseigne:
                 oublis[identifiant] += 1
+            if renseigne and identifiant not in effectifs:
+                sans_cadre[identifiant] += 1
 
     return (
         MesurePropagation(
@@ -225,6 +235,7 @@ def _applicabilite(
         ConduiteDEntretien(
             questions_inutiles=dict(sorted(inutiles.items())),
             oublis=dict(sorted(oublis.items())),
+            non_cotables_faute_de_cadre=dict(sorted(sans_cadre.items())),
         ),
     )
 

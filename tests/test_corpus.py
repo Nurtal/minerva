@@ -76,7 +76,9 @@ def test_la_reference_porte_un_verdict_par_item_du_registre() -> None:
     )
 
     entretien = generer(
-        specification(A1=(True, True), A2=(False, False), A3a=(False, False)),
+        specification(
+            A1=(True, True), A2=(False, False), A3a=(False, False), A_cadre=(False, False)
+        ),
         registre,
         AdaptateurFactice([genere]),
     )
@@ -96,7 +98,9 @@ def test_un_entretien_qui_ne_realise_pas_la_specification_est_refuse() -> None:
 
     with pytest.raises(GenerationInfidele, match="A1"):
         generer(
-            specification(A1=(True, True), A2=(False, False), A3a=(False, False)),
+            specification(
+                A1=(True, True), A2=(False, False), A3a=(False, False), A_cadre=(False, False)
+            ),
             registre_module_a_reduit(),
             AdaptateurFactice([genere]),
         )
@@ -120,7 +124,9 @@ def test_un_empan_qui_designe_un_tour_inexistant_est_refuse() -> None:
 
     with pytest.raises(GenerationInfidele, match="99"):
         generer(
-            specification(A1=(True, False), A2=(False, False), A3a=(False, False)),
+            specification(
+                A1=(True, False), A2=(False, False), A3a=(False, False), A_cadre=(False, False)
+            ),
             registre_module_a_reduit(),
             AdaptateurFactice([genere]),
         )
@@ -139,7 +145,9 @@ def test_un_verdict_positif_sans_empan_est_refuse() -> None:
 
     with pytest.raises(GenerationInfidele, match="A1"):
         generer(
-            specification(A1=(True, False), A2=(False, False), A3a=(False, False)),
+            specification(
+                A1=(True, False), A2=(False, False), A3a=(False, False), A_cadre=(False, False)
+            ),
             registre_module_a_reduit(),
             AdaptateurFactice([genere]),
         )
@@ -228,7 +236,9 @@ def test_un_empan_de_sollicitation_sur_un_tour_du_patient_est_refuse() -> None:
 
     with pytest.raises(GenerationInfidele, match="patient"):
         generer(
-            specification(A1=(True, False), A2=(False, False), A3a=(False, False)),
+            specification(
+                A1=(True, False), A2=(False, False), A3a=(False, False), A_cadre=(False, False)
+            ),
             registre_module_a_reduit(),
             AdaptateurFactice([genere]),
         )
@@ -271,7 +281,9 @@ def test_un_empan_dont_le_passage_ne_figure_pas_dans_le_tour_est_refuse() -> Non
 
     with pytest.raises(GenerationInfidele, match="ne figure pas"):
         generer(
-            specification(A1=(True, False), A2=(False, False), A3a=(False, False)),
+            specification(
+                A1=(True, False), A2=(False, False), A3a=(False, False), A_cadre=(False, False)
+            ),
             registre_module_a_reduit(),
             AdaptateurFactice([genere]),
         )
@@ -289,7 +301,9 @@ def test_une_polarite_sur_un_item_non_filtre_est_ecartee_de_la_reference() -> No
     )
 
     entretien = generer(
-        specification(A1=(False, False), A2=(False, False), A3a=(False, False)),
+        specification(
+            A1=(False, False), A2=(False, False), A3a=(False, False), A_cadre=(False, False)
+        ),
         registre_module_a_reduit(),
         AdaptateurFactice([genere]),
     )
@@ -323,7 +337,13 @@ def test_la_polarite_commandee_par_la_specification_est_verifiee() -> None:
     """
     with pytest.raises(GenerationInfidele, match="polarité"):
         generer(
-            specification({"A1": False}, A1=(True, True), A2=(False, False), A3a=(False, False)),
+            specification(
+                {"A1": False},
+                A1=(True, True),
+                A2=(False, False),
+                A3a=(False, False),
+                A_cadre=(False, False),
+            ),
             registre_module_a_reduit(),
             AdaptateurFactice([entretien_avec("A1", positif=True)]),
         )
@@ -332,7 +352,13 @@ def test_la_polarite_commandee_par_la_specification_est_verifiee() -> None:
 def test_la_reference_porte_la_polarite_commandee() -> None:
     """Ce qui rend le graphe déroulable sur la référence de bout en bout."""
     entretien = generer(
-        specification({"A1": False}, A1=(True, True), A2=(False, False), A3a=(False, False)),
+        specification(
+            {"A1": False},
+            A1=(True, True),
+            A2=(False, False),
+            A3a=(False, False),
+            A_cadre=(False, False),
+        ),
         registre_module_a_reduit(),
         AdaptateurFactice([entretien_avec("A1", positif=False)]),
     )

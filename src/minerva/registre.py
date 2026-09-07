@@ -12,7 +12,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel, Field, model_validator
 
-from minerva.domaine import Polarite
+from minerva.domaine import Fiche, Polarite
 
 
 class Porte(BaseModel):
@@ -94,25 +94,86 @@ class Item(BaseModel):
     """Porte du second étage : ce qui doit être vrai pour que cet Item soit attendu."""
 
 
+class Qualificatif(BaseModel):
+    """Une entrée du Registre de portée Module, dont les Items du Module héritent.
+
+    Cadre temporel, fréquence : ce que le MINI présente en tête de module et que le
+    Clinicien relit aussi souvent que nécessaire. Ne correspond à aucune question du MINI,
+    et c'est assumé — le Registre est notre objet, pas l'instrument.
+
+    Se sollicite et se renseigne comme un Item, ce qui rend visible l'Entretien qui
+    n'établit jamais l'ancienneté des troubles.
+    """
+
+    identifiant: str
+    module: str
+    construct_sonde: str
+    source: str
+
+
 class RegistreDItems(BaseModel):
     """Les Items connus de MINERVA, groupés par Module."""
 
     items: list[Item]
+    qualificatifs: list[Qualificatif] = []
     portes_de_module: dict[str, Porte] = {}
     """Portes du premier étage : le filtre en tête de chaque Module qui en a un."""
 
     def modules(self) -> list[str]:
+        modules = [item.module for item in self.items]
+        modules += [qualificatif.module for qualificatif in self.qualificatifs]
         vus: list[str] = []
-        for item in self.items:
-            if item.module not in vus:
-                vus.append(item.module)
+        for module in modules:
+            if module not in vus:
+                vus.append(module)
         return vus
 
     def items_du_module(self, module: str) -> list[Item]:
         return [item for item in self.items if item.module == module]
 
     def identifiants(self) -> list[str]:
-        return [item.identifiant for item in self.items]
+        """Toutes les entrées du Registre — Items et Qualificatifs — dans l'ordre.
+
+        C'est la forme que suit une Fiche : un Qualificatif y porte son verdict au même
+        titre qu'un Item.
+        """
+        return [item.identifiant for item in self.items] + [
+            qualificatif.identifiant for qualificatif in self.qualificatifs
+        ]
+
+    def qualificatif_du_module(self, module: str) -> Qualificatif | None:
+        return next((q for q in self.qualificatifs if q.module == module), None)
+
+    def renseignes_effectifs(self, fiche: Fiche) -> set[str]:
+        """Les entrées réellement cotables, héritage du Qualificatif appliqué.
+
+        Un Item n'est cotable que si son contenu **et** le cadre temporel de son Module
+        sont établis : le MINI cote sur une durée et une fréquence, pas sur un symptôme
+        nu. Un Module sans Qualificatif n'impose rien.
+
+        Le Qualificatif, lui, ne dépend que de lui-même.
+        """
+        verdicts = fiche.par_identifiant()
+        cadres = {
+            qualificatif.module: bool(
+                (verdict := verdicts.get(qualificatif.identifiant)) and verdict.renseigne
+            )
+            for qualificatif in self.qualificatifs
+        }
+
+        effectifs = {
+            item.identifiant
+            for item in self.items
+            if (verdict := verdicts.get(item.identifiant))
+            and verdict.renseigne
+            and cadres.get(item.module, True)
+        }
+        effectifs |= {
+            qualificatif.identifiant
+            for qualificatif in self.qualificatifs
+            if cadres[qualificatif.module]
+        }
+        return effectifs
 
     def items_filtres(self) -> set[str]:
         """Les Items dont le graphe a besoin de la polarité, et eux seuls.
@@ -154,11 +215,25 @@ class RegistreDItems(BaseModel):
         }
 
     def decrire_module(self, module: str) -> str:
-        """Les Items d'un Module tels qu'on les présente à un modèle."""
-        return "\n".join(
+        """Les entrées d'un Module telles qu'on les présente à un modèle."""
+        lignes = [
             f"- {item.identifiant} : {item.construct_sonde}"
             for item in self.items_du_module(module)
-        )
+        ]
+        qualificatif = self.qualificatif_du_module(module)
+        if qualificatif is not None:
+            lignes.append(
+                f"- {qualificatif.identifiant} : {qualificatif.construct_sonde} "
+                "(cadre du module, à établir une seule fois — il vaut pour tous les items "
+                "ci-dessus)"
+            )
+        return "\n".join(lignes)
+
+    def entrees_du_module(self, module: str) -> list[str]:
+        """Les identifiants attendus dans une Fiche pour ce Module, Qualificatif compris."""
+        identifiants = [item.identifiant for item in self.items_du_module(module)]
+        qualificatif = self.qualificatif_du_module(module)
+        return identifiants + ([qualificatif.identifiant] if qualificatif else [])
 
 
 def registre_module_a_reduit() -> RegistreDItems:
@@ -168,6 +243,19 @@ def registre_module_a_reduit() -> RegistreDItems:
     ticket dédié, avec double reconstruction et contrôle croisé contre le PHQ-9.
     """
     return RegistreDItems(
+        qualificatifs=[
+            Qualificatif(
+                identifiant="A_cadre",
+                module="A",
+                construct_sonde=(
+                    "Ancienneté et permanence des troubles : présents depuis au moins deux "
+                    "semaines, la majeure partie du temps, presque tous les jours."
+                ),
+                source="APA, DSM-5-TR (2022), critère A de l'épisode dépressif caractérisé : "
+                "la durée et la fréquence conditionnent la cotation de chaque symptôme du "
+                "module ; recoupé par la consigne du PHQ-9 sur les deux dernières semaines.",
+            )
+        ],
         portes_de_module={
             # Le filtre en tête du Module A : humeur dépressive OU perte d'intérêt.
             # Établi négatif sur les deux, le reste du Module est légitimement écarté.

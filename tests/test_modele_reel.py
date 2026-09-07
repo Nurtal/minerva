@@ -28,6 +28,7 @@ def test_la_chaine_tourne_contre_un_modele_reel() -> None:
                 VerdictItem(identifiant="A1", sollicite=True, renseigne=True, empans=[]),
                 VerdictItem(identifiant="A2", sollicite=True, renseigne=False, empans=[]),
                 VerdictItem(identifiant="A3a", sollicite=False, renseigne=False, empans=[]),
+                VerdictItem(identifiant="A_cadre", sollicite=True, renseigne=True, empans=[]),
             ]
         )
     )
