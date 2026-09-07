@@ -11,9 +11,18 @@ confondus. Générer Module par Module puis recoller donnerait des indices de To
 et des Empans pointant sur les Tours d'un autre Module.
 """
 
+from enum import StrEnum
+
 from pydantic import BaseModel
 
-from minerva.domaine import Entretien, Fiche, Propriete, Retranscription, VerdictItem
+from minerva.domaine import (
+    Entretien,
+    Fiche,
+    Propriete,
+    Retranscription,
+    Style,
+    VerdictItem,
+)
 from minerva.modele import PortModele
 from minerva.registre import RegistreDItems
 from minerva.rendu import decrire_module
@@ -21,6 +30,45 @@ from minerva.rendu import decrire_module
 
 class GenerationInfidele(RuntimeError):
     """L'Entretien produit ne réalise pas la Spécification qui l'a commandé."""
+
+
+class NaturePhenomene(StrEnum):
+    """Les difficultés qu'un Corpus doit éprouver, faute de quoi il n'éprouve rien.
+
+    Quatre d'entre elles impliquent définitionnellement un état visé ; la cinquième
+    porte sur un Module et se vérifie contre son graphe de saut.
+    """
+
+    SANS_REPONSE = "sans_reponse"
+    """Le Clinicien pose la question, le Patient n'apporte rien d'exploitable."""
+    APPORT_SPONTANE = "apport_spontane"
+    """Le Patient apporte le contenu sans qu'on le lui ait demandé."""
+    FAUX_AMI = "faux_ami"
+    """L'Entretien contient un contenu qui ressemble à l'Item sans en être."""
+    NEGATION = "negation"
+    """La réponse est explicitement négative — ce qui renseigne l'Item, et ne l'annule pas."""
+    MODULE_SAUTE = "module_saute"
+    """Le filtre d'un Module est établi négatif et la suite du Module est écartée à raison."""
+
+
+class PhenomeneAdverse(BaseModel):
+    """Une difficulté imposée à la génération, rattachée à ce qu'elle vise.
+
+    La cible est l'identifiant d'une entrée du Registre, sauf pour MODULE_SAUTE où elle
+    nomme un Module.
+    """
+
+    nature: NaturePhenomene
+    cible: str
+
+
+_ETATS_IMPLIQUES: dict[NaturePhenomene, tuple[bool | None, bool | None]] = {
+    NaturePhenomene.SANS_REPONSE: (True, False),
+    NaturePhenomene.APPORT_SPONTANE: (False, True),
+    NaturePhenomene.NEGATION: (None, True),
+    NaturePhenomene.FAUX_AMI: (None, False),
+}
+"""Ce que chaque nature impose de (sollicite, renseigne). None : la nature ne dit rien."""
 
 
 class Specification(BaseModel):
@@ -33,6 +81,10 @@ class Specification(BaseModel):
     """
 
     fiche_visee: Fiche
+    phenomenes: list[PhenomeneAdverse] = []
+    """Les difficultés que l'Entretien devra réaliser, chacune rattachée à sa cible."""
+    style: Style = Style()
+    """Les axes de style, en variables contrôlées — c'est par eux qu'on ventile les chiffres."""
 
 
 _CONSIGNE = """\
@@ -59,6 +111,14 @@ Pour chaque propriété vraie, cite les tours qui l'établissent par leur indice
 chaque empan, recopie le passage exact — un extrait littéral du tour cité, pas une
 reformulation, et le fragment utile plutôt que le tour entier.
 
+Difficultés à réaliser dans cet entretien :
+{phenomenes}
+
+Style de l'entretien, à respecter :
+- loquacité du patient : {loquacite}
+- coopération du patient : {cooperation}
+- directivité du clinicien : {directivite}
+
 Items :
 {items}
 """
@@ -77,10 +137,63 @@ def _rendre_commande(specification: Specification, registre: RegistreDItems) -> 
     return "\n".join(lignes)
 
 
+def _rendre_phenomenes(specification: Specification) -> str:
+    if not specification.phenomenes:
+        return "- aucune : entretien sans difficulté imposée"
+    return "\n".join(
+        f"- {phenomene.nature.value} sur {phenomene.cible}"
+        for phenomene in specification.phenomenes
+    )
+
+
 def _rendre_items(registre: RegistreDItems) -> str:
     return "\n".join(
         f"{module} :\n{decrire_module(registre, module)}" for module in registre.modules()
     )
+
+
+def _verifier_phenomenes(specification: Specification, registre: RegistreDItems) -> None:
+    """Un Phénomène doit viser quelque chose, et ne pas contredire la commande.
+
+    Les natures qui impliquent un état ne sont pas des nuances de génération : déclarer
+    une question sans réponse sur un Item commandé renseigné serait une Spécification qui
+    se contredit, et l'Entretien produit ne pourrait satisfaire les deux.
+    """
+    vises = specification.fiche_visee.par_identifiant()
+    polarites = specification.fiche_visee.polarites()
+
+    for phenomene in specification.phenomenes:
+        if phenomene.nature is NaturePhenomene.MODULE_SAUTE:
+            porte = registre.portes_de_module.get(phenomene.cible)
+            if porte is None:
+                raise GenerationInfidele(
+                    f"{phenomene.nature.value} vise « {phenomene.cible} », "
+                    "qui n'est pas un Module porteur d'une porte"
+                )
+            if porte.evaluer(polarites) is not False:
+                raise GenerationInfidele(
+                    f"{phenomene.nature.value} sur le Module {phenomene.cible} : la porte "
+                    "du Module n'est pas établie négative par les polarités commandées — "
+                    "un Module n'est pas sauté par décret, il l'est parce que son filtre "
+                    "est négatif"
+                )
+            continue
+
+        vise = vises.get(phenomene.cible)
+        if vise is None:
+            raise GenerationInfidele(
+                f"{phenomene.nature.value} vise « {phenomene.cible} », "
+                "qui n'est pas une entrée de la Spécification"
+            )
+        sollicite, renseigne = _ETATS_IMPLIQUES[phenomene.nature]
+        if (sollicite is not None and vise.sollicite is not sollicite) or (
+            renseigne is not None and vise.renseigne is not renseigne
+        ):
+            raise GenerationInfidele(
+                f"{phenomene.nature.value} sur {phenomene.cible} : la nature impose "
+                f"sollicite={sollicite}, renseigne={renseigne}, mais la commande dit "
+                f"sollicite={vise.sollicite}, renseigne={vise.renseigne}"
+            )
 
 
 def _verifier_couverture(specification: Specification, registre: RegistreDItems) -> None:
@@ -169,8 +282,13 @@ def generer(
 ) -> Entretien:
     """Dérive un Entretien de la Spécification, et refuse celui qui ne la réalise pas."""
     _verifier_couverture(specification, registre)
+    _verifier_phenomenes(specification, registre)
     prompt = _CONSIGNE.format(
         commande=_rendre_commande(specification, registre),
+        phenomenes=_rendre_phenomenes(specification),
+        loquacite=specification.style.loquacite.value,
+        cooperation=specification.style.cooperation.value,
+        directivite=specification.style.directivite.value,
         items=_rendre_items(registre),
     )
     produit = modele.repondre(prompt, Entretien)

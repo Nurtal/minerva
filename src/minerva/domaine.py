@@ -135,6 +135,44 @@ class Fiche(BaseModel):
         return {verdict.identifiant: verdict.positif for verdict in self.verdicts}
 
 
+class Loquacite(StrEnum):
+    """Combien le Patient en dit."""
+
+    LACONIQUE = "laconique"
+    MOYENNE = "moyenne"
+    PROLIXE = "prolixe"
+
+
+class Cooperation(StrEnum):
+    """Avec quelle disposition le Patient répond."""
+
+    EVITANTE = "evitante"
+    MOYENNE = "moyenne"
+    COOPERANTE = "cooperante"
+
+
+class Directivite(StrEnum):
+    """Comment le Clinicien mène l'Entretien."""
+
+    LIBRE = "libre"
+    SEMI_DIRECTIF = "semi_directif"
+    DIRECTIF = "directif"
+
+
+class Style(BaseModel):
+    """Les axes de style de l'Entretien, fixés par la Spécification.
+
+    Variables contrôlées, jamais tirées au hasard : sans quoi une baisse de résultat
+    resterait ininterprétable — on ne saurait pas si le modèle échoue sur les Patients
+    évasifs ou sur les Entretiens longs. Les valeurs par défaut sont le milieu de chaque
+    axe, et ce défaut est un choix explicite, pas une absence de choix.
+    """
+
+    loquacite: Loquacite = Loquacite.MOYENNE
+    cooperation: Cooperation = Cooperation.MOYENNE
+    directivite: Directivite = Directivite.SEMI_DIRECTIF
+
+
 class Entretien(BaseModel):
     """Une Retranscription et la Fiche de référence qui la décrit, vraie par construction."""
 

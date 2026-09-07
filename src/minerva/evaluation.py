@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from minerva.domaine import Fiche, Propriete
+from minerva.domaine import Fiche, Propriete, Style
 from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
@@ -189,6 +189,42 @@ def _ancrage(paires: Sequence[PaireFiches]) -> float:
                 role = propriete.role
                 ancres += bool(verdict_reference.tours(role) & verdict_prediction.tours(role))
     return ancres / total if total else 0.0
+
+
+@dataclass(frozen=True)
+class CasEvalue:
+    """Un Entretien évalué, avec le Style sous lequel il a été produit.
+
+    Le Style ne sert pas à mesurer : il sert à ventiler. Sans lui, une baisse de résultat
+    ne dit pas si le modèle échoue sur les Patients évasifs ou sur les Entretiens longs.
+    """
+
+    style: Style
+    reference: Fiche
+    prediction: Fiche
+
+
+_AXES = ("loquacite", "cooperation", "directivite")
+
+
+def evaluer_par_axe(
+    cas: Sequence[CasEvalue], registre: RegistreDItems
+) -> dict[str, dict[str, Mesures]]:
+    """Les mêmes chiffres, ventilés axe par axe puis niveau par niveau.
+
+    Un axe de style contrôlé ne sert à rien si les chiffres ne s'y rapportent pas : c'est
+    la ventilation qui rend une baisse interprétable.
+    """
+    par_axe: dict[str, dict[str, Mesures]] = {}
+    for axe in _AXES:
+        groupes: dict[str, list[PaireFiches]] = {}
+        for un_cas in cas:
+            niveau = str(getattr(un_cas.style, axe).value)
+            groupes.setdefault(niveau, []).append((un_cas.reference, un_cas.prediction))
+        par_axe[axe] = {
+            niveau: evaluer(paires, registre) for niveau, paires in sorted(groupes.items())
+        }
+    return par_axe
 
 
 def _applicabilite(
