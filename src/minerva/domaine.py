@@ -173,8 +173,34 @@ class Style(BaseModel):
     directivite: Directivite = Directivite.SEMI_DIRECTIF
 
 
+class AxeDeStyle(StrEnum):
+    """Les axes selon lesquels on ventile les chiffres.
+
+    Nommer les axes plutôt que lire des attributs par leur nom en chaîne : un champ de
+    Style renommé devient alors une erreur de typage, pas une ventilation silencieusement
+    vide.
+    """
+
+    LOQUACITE = "loquacite"
+    COOPERATION = "cooperation"
+    DIRECTIVITE = "directivite"
+
+    def valeur(self, style: "Style") -> str:
+        if self is AxeDeStyle.LOQUACITE:
+            return style.loquacite.value
+        if self is AxeDeStyle.COOPERATION:
+            return style.cooperation.value
+        return style.directivite.value
+
+
 class Entretien(BaseModel):
-    """Une Retranscription et la Fiche de référence qui la décrit, vraie par construction."""
+    """Une Retranscription et la Fiche de référence qui la décrit, vraie par construction.
+
+    Porte le Style sous lequel il a été produit : sans lui, ventiler les chiffres par axe
+    obligerait à ré-apparier à la main une Spécification et une sortie de détection, ce
+    qui est une erreur silencieuse et irrattrapable.
+    """
 
     retranscription: Retranscription
     reference: Fiche
+    style: Style = Style()

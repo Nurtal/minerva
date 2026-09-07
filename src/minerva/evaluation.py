@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from minerva.domaine import Fiche, Propriete, Style
+from minerva.domaine import AxeDeStyle, Fiche, Propriete, Style
 from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
@@ -192,8 +192,8 @@ def _ancrage(paires: Sequence[PaireFiches]) -> float:
 
 
 @dataclass(frozen=True)
-class CasEvalue:
-    """Un Entretien évalué, avec le Style sous lequel il a été produit.
+class EntretienEvalue:
+    """Une Fiche de référence, la Fiche prédite, et le Style sous lequel l'Entretien fut produit.
 
     Le Style ne sert pas à mesurer : il sert à ventiler. Sans lui, une baisse de résultat
     ne dit pas si le modèle échoue sur les Patients évasifs ou sur les Entretiens longs.
@@ -204,23 +204,24 @@ class CasEvalue:
     prediction: Fiche
 
 
-_AXES = ("loquacite", "cooperation", "directivite")
-
-
 def evaluer_par_axe(
-    cas: Sequence[CasEvalue], registre: RegistreDItems
-) -> dict[str, dict[str, Mesures]]:
+    entretiens: Sequence[EntretienEvalue], registre: RegistreDItems
+) -> dict[AxeDeStyle, dict[str, Mesures]]:
     """Les mêmes chiffres, ventilés axe par axe puis niveau par niveau.
 
     Un axe de style contrôlé ne sert à rien si les chiffres ne s'y rapportent pas : c'est
     la ventilation qui rend une baisse interprétable.
+
+    Attention en comparant deux niveaux : chacun a son propre dénominateur, puisque les
+    entrées sans aucun positif y sont écartées séparément (ADR-0005). Deux niveaux dont
+    les `items_ecartes` diffèrent ne sont pas directement comparables.
     """
-    par_axe: dict[str, dict[str, Mesures]] = {}
-    for axe in _AXES:
+    par_axe: dict[AxeDeStyle, dict[str, Mesures]] = {}
+    for axe in AxeDeStyle:
         groupes: dict[str, list[PaireFiches]] = {}
-        for un_cas in cas:
-            niveau = str(getattr(un_cas.style, axe).value)
-            groupes.setdefault(niveau, []).append((un_cas.reference, un_cas.prediction))
+        for entretien in entretiens:
+            niveau = axe.valeur(entretien.style)
+            groupes.setdefault(niveau, []).append((entretien.reference, entretien.prediction))
         par_axe[axe] = {
             niveau: evaluer(paires, registre) for niveau, paires in sorted(groupes.items())
         }

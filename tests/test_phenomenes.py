@@ -9,13 +9,16 @@ l'état correspondant serait une Spécification qui se contredit.
 import pytest
 
 from minerva.corpus import (
-    GenerationInfidele,
+    ModuleSaute,
     NaturePhenomene,
     PhenomeneAdverse,
+    PhenomeneSurEntree,
     Specification,
+    SpecificationIncoherente,
     generer,
 )
 from minerva.domaine import (
+    AxeDeStyle,
     Cooperation,
     Directivite,
     EmpanDePreuve,
@@ -29,7 +32,7 @@ from minerva.domaine import (
     TourDeParole,
     VerdictItem,
 )
-from minerva.evaluation import CasEvalue, evaluer, evaluer_par_axe
+from minerva.evaluation import EntretienEvalue, evaluer, evaluer_par_axe
 from minerva.modele import AdaptateurFactice, ReponseIncoherente
 from minerva.registre import RegistreDItems, registre_module_a_reduit
 from tests.fabriques import item
@@ -80,10 +83,10 @@ def test_sans_reponse_exige_un_item_sollicite_et_non_renseigne() -> None:
     """La question posée qui n'obtient rien : c'est exactement cet état, pas un autre."""
     contradictoire = specification(
         TOUT_ETEINT | {"A1": (True, True)},
-        [PhenomeneAdverse(nature=NaturePhenomene.SANS_REPONSE, cible="A1")],
+        [PhenomeneSurEntree(nature=NaturePhenomene.SANS_REPONSE, cible="A1")],
     )
 
-    with pytest.raises(GenerationInfidele, match="sans_reponse"):
+    with pytest.raises(SpecificationIncoherente, match="sans_reponse"):
         generer_avec(contradictoire)
 
 
@@ -91,21 +94,53 @@ def test_apport_spontane_exige_un_item_renseigne_sans_avoir_ete_sollicite() -> N
     """Ce que le Patient offre de lui-même — l'inverse exact de la question sans réponse."""
     contradictoire = specification(
         TOUT_ETEINT | {"A1": (True, True)},
-        [PhenomeneAdverse(nature=NaturePhenomene.APPORT_SPONTANE, cible="A1")],
+        [PhenomeneSurEntree(nature=NaturePhenomene.APPORT_SPONTANE, cible="A1")],
     )
 
-    with pytest.raises(GenerationInfidele, match="apport_spontane"):
+    with pytest.raises(SpecificationIncoherente, match="apport_spontane"):
         generer_avec(contradictoire)
 
 
-def test_faux_ami_exige_un_item_non_renseigne() -> None:
-    """Un faux ami est un piège : si l'item est réellement renseigné, il n'y a plus de piège."""
-    contradictoire = specification(
-        TOUT_ETEINT | {"A3a": (False, True)},
-        [PhenomeneAdverse(nature=NaturePhenomene.FAUX_AMI, cible="A3a")],
+def test_un_faux_ami_peut_coexister_avec_l_item_reellement_renseigne() -> None:
+    """Le cas le plus discriminant, et il ne doit pas être interdit.
+
+    Un contenu trompeur qui ressemble à l'item, plus l'item réellement renseigné ailleurs :
+    la question devient « le détecteur ancre-t-il son verdict sur le bon passage ? ».
+    Exiger l'item non renseigné supprimerait ce cas, et le priverait de tout positif — ce
+    qui l'écarterait de la macro-moyenne au lieu de l'éprouver.
+    """
+    demande = specification(
+        TOUT_ETEINT | {"A3a": (True, True)},
+        [PhenomeneSurEntree(nature=NaturePhenomene.FAUX_AMI, cible="A3a")],
     )
 
-    with pytest.raises(GenerationInfidele, match="faux_ami"):
+    with pytest.raises(ReponseIncoherente, match="scénario épuisé"):
+        generer_avec(demande)
+
+
+def test_negation_sur_un_filtre_impose_une_polarite_negative() -> None:
+    """« La réponse est explicitement négative » et « le filtre est positif » ne tiennent
+    pas ensemble : sur un Item filtre, la négation *est* une polarité négative."""
+    contradictoire = specification(
+        TOUT_ETEINT | {"A1": (True, True)},
+        [PhenomeneSurEntree(nature=NaturePhenomene.NEGATION, cible="A1")],
+        polarites={"A1": True},
+    )
+
+    with pytest.raises(SpecificationIncoherente, match="negation"):
+        generer_avec(contradictoire)
+
+
+def test_une_polarite_commandee_exige_une_entree_renseignee() -> None:
+    """On n'établit pas une réponse qu'on n'a pas.
+
+    Sans ce contrôle, une Spécification pouvait fermer un Module sur un filtre que
+    l'Entretien n'établit jamais — fabriquant comme vérité terrain l'incitation même que
+    l'ADR-0006 interdit.
+    """
+    contradictoire = specification(TOUT_ETEINT, polarites={"A1": False})
+
+    with pytest.raises(SpecificationIncoherente, match="non renseignée"):
         generer_avec(contradictoire)
 
 
@@ -113,20 +148,20 @@ def test_module_saute_exige_que_la_porte_du_module_soit_negative() -> None:
     """Un Module n'est pas sauté par décret : il l'est parce que son filtre est négatif."""
     contradictoire = specification(
         TOUT_ETEINT | {"A1": (True, True)},
-        [PhenomeneAdverse(nature=NaturePhenomene.MODULE_SAUTE, cible="A")],
+        [ModuleSaute(module="A")],
         polarites={"A1": True},
     )
 
-    with pytest.raises(GenerationInfidele, match="module_saute"):
+    with pytest.raises(SpecificationIncoherente, match="module_saute"):
         generer_avec(contradictoire)
 
 
 def test_un_phenomene_visant_une_entree_inconnue_est_refuse() -> None:
     """Une difficulté qui ne vise rien ne sera jamais réalisée ni mesurée."""
-    with pytest.raises(GenerationInfidele, match="Z9"):
+    with pytest.raises(SpecificationIncoherente, match="Z9"):
         generer_avec(
             specification(
-                TOUT_ETEINT, [PhenomeneAdverse(nature=NaturePhenomene.NEGATION, cible="Z9")]
+                TOUT_ETEINT, [PhenomeneSurEntree(nature=NaturePhenomene.NEGATION, cible="Z9")]
             )
         )
 
@@ -140,7 +175,7 @@ def test_les_phenomenes_et_le_style_traversent_la_couture() -> None:
     adaptateur = AdaptateurFactice([])
     demande = specification(
         TOUT_ETEINT | {"A1": (True, False)},
-        [PhenomeneAdverse(nature=NaturePhenomene.SANS_REPONSE, cible="A1")],
+        [PhenomeneSurEntree(nature=NaturePhenomene.SANS_REPONSE, cible="A1")],
         style=Style(
             loquacite=Loquacite.LACONIQUE,
             cooperation=Cooperation.EVITANTE,
@@ -197,12 +232,12 @@ def test_les_chiffres_se_ventilent_par_axe_de_style() -> None:
     rate = fiche(A1=(False, False))
 
     cas = [
-        CasEvalue(
+        EntretienEvalue(
             style=Style(loquacite=Loquacite.LACONIQUE),
             reference=fiche(A1=(True, True)),
             prediction=rate,
         ),
-        CasEvalue(
+        EntretienEvalue(
             style=Style(loquacite=Loquacite.PROLIXE),
             reference=fiche(A1=(True, True)),
             prediction=parfait,
@@ -211,20 +246,20 @@ def test_les_chiffres_se_ventilent_par_axe_de_style() -> None:
 
     par_axe = evaluer_par_axe(cas, registre_plat("A1"))
 
-    assert par_axe["loquacite"]["laconique"].renseigne.rappel == 0.0
-    assert par_axe["loquacite"]["prolixe"].renseigne.rappel == 1.0
-    assert set(par_axe) == {"loquacite", "cooperation", "directivite"}
+    assert par_axe[AxeDeStyle.LOQUACITE]["laconique"].renseigne.rappel == 0.0
+    assert par_axe[AxeDeStyle.LOQUACITE]["prolixe"].renseigne.rappel == 1.0
+    assert set(par_axe) == set(AxeDeStyle)
 
 
 def test_un_axe_sans_variation_rend_un_seul_groupe() -> None:
     """Les deux Entretiens partagent la même directivité : rien à comparer sur cet axe."""
     cas = [
-        CasEvalue(
+        EntretienEvalue(
             style=Style(loquacite=Loquacite.LACONIQUE),
             reference=fiche(A1=(True, True)),
             prediction=fiche(A1=(True, True)),
         ),
-        CasEvalue(
+        EntretienEvalue(
             style=Style(loquacite=Loquacite.PROLIXE),
             reference=fiche(A1=(True, True)),
             prediction=fiche(A1=(True, True)),
@@ -233,7 +268,7 @@ def test_un_axe_sans_variation_rend_un_seul_groupe() -> None:
 
     par_axe = evaluer_par_axe(cas, registre_plat("A1"))
 
-    assert set(par_axe["directivite"]) == {"semi_directif"}
+    assert set(par_axe[AxeDeStyle.DIRECTIVITE]) == {"semi_directif"}
 
 
 def test_un_module_legitimement_saute_produit_les_drapeaux_non_applicable_attendus() -> None:
@@ -251,7 +286,7 @@ def test_un_module_legitimement_saute_produit_les_drapeaux_non_applicable_attend
             "A3a": (False, False),
             "A_cadre": (False, False),
         },
-        [PhenomeneAdverse(nature=NaturePhenomene.MODULE_SAUTE, cible="A")],
+        [ModuleSaute(module="A")],
         polarites={"A1": False, "A2": False},
     )
 

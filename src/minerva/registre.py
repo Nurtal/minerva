@@ -161,6 +161,14 @@ class RegistreDItems(BaseModel):
     def qualificatif_du_module(self, module: str) -> Qualificatif | None:
         return next((q for q in self.qualificatifs if q.module == module), None)
 
+    def a_une_porte(self, module: str) -> bool:
+        return module in self.portes_de_module
+
+    def module_ferme(self, module: str, polarites: Mapping[str, Polarite]) -> bool:
+        """Le filtre du Module est-il établi négatif ? Indéterminé vaut non fermé."""
+        porte = self.portes_de_module.get(module)
+        return porte is not None and porte.evaluer(polarites) is False
+
     def cotables(self, renseignes: AbstractSet[str], non_applicables: AbstractSet[str]) -> set[str]:
         """Les Items cotables : contenu renseigné **et** cadre de leur Module établi.
 
