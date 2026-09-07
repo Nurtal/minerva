@@ -11,16 +11,89 @@ confondus. Générer Module par Module puis recoller donnerait des indices de To
 et des Empans pointant sur les Tours d'un autre Module.
 """
 
+from enum import StrEnum
+
 from pydantic import BaseModel
 
-from minerva.domaine import Entretien, Fiche, Propriete, Retranscription, VerdictItem
+from minerva.domaine import (
+    Entretien,
+    Fiche,
+    Propriete,
+    Retranscription,
+    Style,
+    VerdictItem,
+)
 from minerva.modele import PortModele
 from minerva.registre import RegistreDItems
 from minerva.rendu import decrire_module
 
 
+class SpecificationIncoherente(ValueError):
+    """La Spécification se contredit ou ne couvre pas le Registre — avant toute génération."""
+
+
 class GenerationInfidele(RuntimeError):
     """L'Entretien produit ne réalise pas la Spécification qui l'a commandé."""
+
+
+class NaturePhenomene(StrEnum):
+    """Les difficultés qu'un Corpus doit éprouver, faute de quoi il n'éprouve rien.
+
+    Ce que la Spécification peut vérifier varie selon la nature, et il faut le savoir en
+    lisant les chiffres. SANS_REPONSE et APPORT_SPONTANE sont entièrement contraints par
+    l'état visé, donc réalisés ou la génération échoue. NEGATION l'est aussi sur un Item
+    filtre, par sa polarité — ailleurs, elle reste une consigne. FAUX_AMI n'est qu'une
+    consigne : rien dans une Fiche ne distingue un faux ami résisté d'un Item jamais
+    évoqué, et un modèle qui l'ignore passe sans qu'on le sache.
+    """
+
+    SANS_REPONSE = "sans_reponse"
+    """Le Clinicien pose la question, le Patient n'apporte rien d'exploitable."""
+    APPORT_SPONTANE = "apport_spontane"
+    """Le Patient apporte le contenu sans qu'on le lui ait demandé."""
+    FAUX_AMI = "faux_ami"
+    """L'Entretien contient un contenu qui ressemble à l'Item sans en être."""
+    NEGATION = "negation"
+    """La réponse est explicitement négative — ce qui renseigne l'Item, et ne l'annule pas."""
+
+
+_ETATS_IMPLIQUES: dict[NaturePhenomene, dict[Propriete, bool]] = {
+    NaturePhenomene.SANS_REPONSE: {Propriete.SOLLICITE: True, Propriete.RENSEIGNE: False},
+    NaturePhenomene.APPORT_SPONTANE: {Propriete.SOLLICITE: False, Propriete.RENSEIGNE: True},
+    NaturePhenomene.NEGATION: {Propriete.RENSEIGNE: True},
+    NaturePhenomene.FAUX_AMI: {},
+}
+"""Ce que chaque nature impose. La table est totale : toute nature y figure, donc une
+nature nouvelle ne peut pas passer au travers sans qu'on ait décidé de son implication.
+
+FAUX_AMI n'impose rien, délibérément : un contenu trompeur peut parfaitement coexister
+avec l'Item réellement renseigné ailleurs dans l'Entretien, et c'est même le cas le plus
+discriminant — le détecteur ancre-t-il son verdict sur le bon passage ? L'exiger non
+renseigné supprimerait ce cas, et priverait l'Item de tout positif, ce qui l'écarterait
+de la macro-moyenne (ADR-0005) au lieu de l'éprouver."""
+
+
+class PhenomeneSurEntree(BaseModel):
+    """Une difficulté visant une entrée précise du Registre."""
+
+    nature: NaturePhenomene
+    cible: str
+
+
+class ModuleSaute(BaseModel):
+    """Le filtre d'un Module est établi négatif et sa suite est écartée à raison.
+
+    Type distinct plutôt que nature parmi les autres : ce Phénomène vise un Module et non
+    une entrée, et un identifiant qui désignerait tantôt l'un tantôt l'autre serait une
+    ambiguïté que rien ne rattraperait — pas même le prompt, qui la transmettrait telle
+    quelle au modèle.
+    """
+
+    module: str
+
+
+PhenomeneAdverse = PhenomeneSurEntree | ModuleSaute
+"""Une difficulté que la Spécification impose de réaliser, rattachée à ce qu'elle vise."""
 
 
 class Specification(BaseModel):
@@ -33,6 +106,10 @@ class Specification(BaseModel):
     """
 
     fiche_visee: Fiche
+    phenomenes: list[PhenomeneAdverse] = []
+    """Les difficultés que l'Entretien devra réaliser, chacune rattachée à sa cible."""
+    style: Style = Style()
+    """Les axes de style, en variables contrôlées — c'est par eux qu'on ventile les chiffres."""
 
 
 _CONSIGNE = """\
@@ -59,6 +136,14 @@ Pour chaque propriété vraie, cite les tours qui l'établissent par leur indice
 chaque empan, recopie le passage exact — un extrait littéral du tour cité, pas une
 reformulation, et le fragment utile plutôt que le tour entier.
 
+Difficultés à réaliser dans cet entretien :
+{phenomenes}
+
+Style de l'entretien, à respecter :
+- loquacité du patient : {loquacite}
+- coopération du patient : {cooperation}
+- directivité du clinicien : {directivite}
+
 Items :
 {items}
 """
@@ -77,10 +162,92 @@ def _rendre_commande(specification: Specification, registre: RegistreDItems) -> 
     return "\n".join(lignes)
 
 
+def _rendre_phenomenes(specification: Specification) -> str:
+    if not specification.phenomenes:
+        return "- aucune : entretien sans difficulté imposée"
+    return "\n".join(
+        f"- module_saute sur le module {phenomene.module}"
+        if isinstance(phenomene, ModuleSaute)
+        else f"- {phenomene.nature.value} sur l'entrée {phenomene.cible}"
+        for phenomene in specification.phenomenes
+    )
+
+
 def _rendre_items(registre: RegistreDItems) -> str:
     return "\n".join(
         f"{module} :\n{decrire_module(registre, module)}" for module in registre.modules()
     )
+
+
+def _verifier_polarites(specification: Specification, registre: RegistreDItems) -> None:
+    """Une polarité commandée exige un Item commandé renseigné.
+
+    On ne peut pas avoir établi la réponse sans avoir l'information. Sans ce contrôle, une
+    Spécification pourrait fermer un Module sur un filtre que l'Entretien n'établit jamais
+    — et fabriquerait comme vérité terrain l'incitation même que l'ADR-0006 interdit.
+    """
+    filtres = registre.items_filtres()
+    for vise in specification.fiche_visee.verdicts:
+        if vise.positif is not None and not vise.renseigne:
+            raise SpecificationIncoherente(
+                f"{vise.identifiant} : polarité commandée à {vise.positif} sur une entrée "
+                "commandée non renseignée — on n'établit pas une réponse qu'on n'a pas"
+            )
+        if vise.positif is not None and vise.identifiant not in filtres:
+            raise SpecificationIncoherente(
+                f"{vise.identifiant} : polarité commandée sur une entrée qui n'est pas un "
+                "Item filtre — ADR-0006 n'excepte que ceux-là"
+            )
+
+
+def _verifier_phenomenes(specification: Specification, registre: RegistreDItems) -> None:
+    """Un Phénomène doit viser quelque chose, et ne pas contredire la commande.
+
+    Les natures qui impliquent un état ne sont pas des nuances de génération : déclarer
+    une question sans réponse sur un Item commandé renseigné serait une Spécification qui
+    se contredit, et l'Entretien produit ne pourrait satisfaire les deux.
+    """
+    vises = specification.fiche_visee.par_identifiant()
+    polarites = specification.fiche_visee.polarites()
+
+    for phenomene in specification.phenomenes:
+        if isinstance(phenomene, ModuleSaute):
+            if not registre.a_une_porte(phenomene.module):
+                raise SpecificationIncoherente(
+                    f"module_saute vise « {phenomene.module} », "
+                    "qui n'est pas un Module porteur d'une porte"
+                )
+            if not registre.module_ferme(phenomene.module, polarites):
+                raise SpecificationIncoherente(
+                    f"module_saute sur le Module {phenomene.module} : la porte du Module "
+                    "n'est pas établie négative par les polarités commandées — un Module "
+                    "n'est pas sauté par décret, il l'est parce que son filtre est négatif"
+                )
+            continue
+
+        vise = vises.get(phenomene.cible)
+        if vise is None:
+            raise SpecificationIncoherente(
+                f"{phenomene.nature.value} vise « {phenomene.cible} », "
+                "qui n'est pas une entrée de la Spécification"
+            )
+        for propriete, impose in _ETATS_IMPLIQUES[phenomene.nature].items():
+            if vise.porte(propriete) is not impose:
+                raise SpecificationIncoherente(
+                    f"{phenomene.nature.value} sur {phenomene.cible} : la nature impose "
+                    f"{propriete.value}={impose}, mais la commande dit "
+                    f"{propriete.value}={vise.porte(propriete)}"
+                )
+        if (
+            phenomene.nature is NaturePhenomene.NEGATION
+            and phenomene.cible in registre.items_filtres()
+            and vise.positif is not False
+        ):
+            raise SpecificationIncoherente(
+                f"negation sur le filtre {phenomene.cible} : une réponse explicitement "
+                f"négative est une polarité négative, mais la commande dit "
+                f"positif={vise.positif}"
+            )
 
 
 def _verifier_couverture(specification: Specification, registre: RegistreDItems) -> None:
@@ -91,7 +258,7 @@ def _verifier_couverture(specification: Specification, registre: RegistreDItems)
     vises = specification.fiche_visee.identifiants()
     manquants = [ident for ident in registre.identifiants() if ident not in vises]
     if manquants:
-        raise GenerationInfidele(
+        raise SpecificationIncoherente(
             f"la spécification ne vise pas {', '.join(manquants)} — un Item absent n'est pas "
             "un Item non visé, c'est une commande incomplète"
         )
@@ -169,12 +336,19 @@ def generer(
 ) -> Entretien:
     """Dérive un Entretien de la Spécification, et refuse celui qui ne la réalise pas."""
     _verifier_couverture(specification, registre)
+    _verifier_polarites(specification, registre)
+    _verifier_phenomenes(specification, registre)
     prompt = _CONSIGNE.format(
         commande=_rendre_commande(specification, registre),
+        phenomenes=_rendre_phenomenes(specification),
+        loquacite=specification.style.loquacite.value,
+        cooperation=specification.style.cooperation.value,
+        directivite=specification.style.directivite.value,
         items=_rendre_items(registre),
     )
     produit = modele.repondre(prompt, Entretien)
     return Entretien(
         retranscription=produit.retranscription,
         reference=_verifier(produit, specification, registre),
+        style=specification.style,
     )

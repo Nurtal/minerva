@@ -9,7 +9,7 @@ défaut réel, que le Qualificatif rend visible au lieu de le laisser disparaît
 import pytest
 from pydantic import ValidationError
 
-from minerva.corpus import GenerationInfidele, Specification, generer
+from minerva.corpus import Specification, SpecificationIncoherente, generer
 from minerva.detection import detecter
 from minerva.domaine import (
     EmpanDePreuve,
@@ -141,7 +141,7 @@ def retranscription() -> Retranscription:
 
 def test_la_specification_doit_fixer_l_etat_vise_du_qualificatif() -> None:
     """Le Qualificatif est une entrée du Registre : la commande doit le couvrir comme le reste."""
-    with pytest.raises(GenerationInfidele, match="A_cadre"):
+    with pytest.raises(SpecificationIncoherente, match="A_cadre"):
         generer(
             Specification(
                 fiche_visee=Fiche(

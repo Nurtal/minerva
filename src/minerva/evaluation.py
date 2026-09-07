@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from minerva.domaine import Fiche, Propriete
+from minerva.domaine import AxeDeStyle, Fiche, Propriete, Style
 from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
@@ -189,6 +189,43 @@ def _ancrage(paires: Sequence[PaireFiches]) -> float:
                 role = propriete.role
                 ancres += bool(verdict_reference.tours(role) & verdict_prediction.tours(role))
     return ancres / total if total else 0.0
+
+
+@dataclass(frozen=True)
+class EntretienEvalue:
+    """Une Fiche de référence, la Fiche prédite, et le Style sous lequel l'Entretien fut produit.
+
+    Le Style ne sert pas à mesurer : il sert à ventiler. Sans lui, une baisse de résultat
+    ne dit pas si le modèle échoue sur les Patients évasifs ou sur les Entretiens longs.
+    """
+
+    style: Style
+    reference: Fiche
+    prediction: Fiche
+
+
+def evaluer_par_axe(
+    entretiens: Sequence[EntretienEvalue], registre: RegistreDItems
+) -> dict[AxeDeStyle, dict[str, Mesures]]:
+    """Les mêmes chiffres, ventilés axe par axe puis niveau par niveau.
+
+    Un axe de style contrôlé ne sert à rien si les chiffres ne s'y rapportent pas : c'est
+    la ventilation qui rend une baisse interprétable.
+
+    Attention en comparant deux niveaux : chacun a son propre dénominateur, puisque les
+    entrées sans aucun positif y sont écartées séparément (ADR-0005). Deux niveaux dont
+    les `items_ecartes` diffèrent ne sont pas directement comparables.
+    """
+    par_axe: dict[AxeDeStyle, dict[str, Mesures]] = {}
+    for axe in AxeDeStyle:
+        groupes: dict[str, list[PaireFiches]] = {}
+        for entretien in entretiens:
+            niveau = axe.valeur(entretien.style)
+            groupes.setdefault(niveau, []).append((entretien.reference, entretien.prediction))
+        par_axe[axe] = {
+            niveau: evaluer(paires, registre) for niveau, paires in sorted(groupes.items())
+        }
+    return par_axe
 
 
 def _applicabilite(

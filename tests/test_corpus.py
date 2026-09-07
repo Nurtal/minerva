@@ -6,7 +6,12 @@ réalisé ce que la Spécification demandait. C'est ce que ce module vérifie.
 
 import pytest
 
-from minerva.corpus import GenerationInfidele, Specification, generer
+from minerva.corpus import (
+    GenerationInfidele,
+    Specification,
+    SpecificationIncoherente,
+    generer,
+)
 from minerva.domaine import (
     EmpanDePreuve,
     Entretien,
@@ -278,7 +283,7 @@ def test_une_specification_qui_ne_couvre_pas_le_registre_est_refusee() -> None:
     """Un Item absent de la Spécification n'est pas un Item non visé, c'est une commande trouée."""
     genere = entretien_genere([])
 
-    with pytest.raises(GenerationInfidele, match="A3a"):
+    with pytest.raises(SpecificationIncoherente, match="A3a"):
         generer(
             specification({"A1": (False, False), "A2": (False, False)}),
             registre_module_a_reduit(),

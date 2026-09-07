@@ -63,8 +63,12 @@ Le tirage qui décrit un entretien avant qu'il n'existe : pour chaque item, l'é
 _Éviter_ : scénario, cas de test, gold, annotation
 
 **Phénomène adverse** :
-Une difficulté que la spécification impose de réaliser dans l'entretien, rattachée à l'item qu'elle vise — question laissée sans réponse, apport spontané, faux ami, négation, module légitimement sauté.
+Une difficulté que la spécification impose de réaliser dans l'entretien, rattachée à ce qu'elle vise — question laissée sans réponse, apport spontané, faux ami, négation, module légitimement sauté. Quatre des cinq impliquent un état visé, et le déclarer sans le commander est une spécification qui se contredit.
 _Éviter_ : cas limite, edge case, piège, cas dur
+
+**Style** :
+Les axes de conduite d'un entretien — loquacité du patient, coopération, directivité du clinicien. Fixés par la spécification, jamais tirés au hasard : c'est par eux qu'on ventile les chiffres, et sans eux une baisse de résultat est ininterprétable.
+_Éviter_ : ton, registre, ambiance, paramètres
 
 **Corpus synthétique** :
 L'ensemble des entretiens générés à partir de spécifications. Unique base d'évaluation de MINERVA.

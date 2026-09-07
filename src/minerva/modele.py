@@ -31,8 +31,12 @@ class AdaptateurFactice:
 
     def __init__(self, reponses: Sequence[BaseModel]) -> None:
         self._reponses: Iterator[BaseModel] = iter(reponses)
+        self.prompts: list[str] = []
+        """Ce qui a traversé la couture, dans l'ordre — le comportement observable des
+        modules appelants, et le seul moyen de vérifier qu'une consigne n'est pas inerte."""
 
     def repondre[T: BaseModel](self, prompt: str, schema: type[T]) -> T:
+        self.prompts.append(prompt)
         try:
             reponse = next(self._reponses)
         except StopIteration as fin:
