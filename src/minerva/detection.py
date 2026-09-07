@@ -8,6 +8,7 @@ modèle rende — c'est la contrainte de forme qui fait de l'évaluation un diff
 from minerva.domaine import Fiche, Retranscription, VerdictItem
 from minerva.modele import PortModele
 from minerva.registre import RegistreDItems
+from minerva.rendu import decrire_entretien, decrire_module
 
 _CONSIGNE = """\
 Tu analyses la retranscription d'un entretien psychiatrique entre un clinicien et son patient.
@@ -42,12 +43,6 @@ Entretien :
 """
 
 
-def _rendre_entretien(retranscription: Retranscription) -> str:
-    return "\n".join(
-        f"[{tour.indice}] {tour.locuteur.value} : {tour.texte}" for tour in retranscription.tours
-    )
-
-
 def detecter(
     retranscription: Retranscription, registre: RegistreDItems, modele: PortModele
 ) -> Fiche:
@@ -63,9 +58,9 @@ def detecter(
         filtres_du_module = sorted(identifiant for identifiant in entrees if identifiant in filtres)
         prompt = _CONSIGNE.format(
             module=module,
-            items=registre.decrire_module(module),
+            items=decrire_module(registre, module),
             filtres=", ".join(filtres_du_module) or "aucun",
-            entretien=_rendre_entretien(retranscription),
+            entretien=decrire_entretien(retranscription),
         )
         rendus = modele.repondre(prompt, Fiche).par_identifiant()
         for identifiant in entrees:

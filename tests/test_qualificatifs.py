@@ -7,6 +7,7 @@ défaut réel, que le Qualificatif rend visible au lieu de le laisser disparaît
 """
 
 import pytest
+from pydantic import ValidationError
 
 from minerva.corpus import GenerationInfidele, Specification, generer
 from minerva.detection import detecter
@@ -21,7 +22,7 @@ from minerva.domaine import (
 )
 from minerva.evaluation import evaluer
 from minerva.modele import AdaptateurFactice
-from minerva.registre import Qualificatif, RegistreDItems
+from minerva.registre import Qualificatif, RegistreDItems, registre_module_a_reduit
 from tests.fabriques import item
 
 
@@ -37,6 +38,10 @@ def registre() -> RegistreDItems:
             )
         ],
     )
+
+
+def renseignes(fiche: Fiche) -> set[str]:
+    return {verdict.identifiant for verdict in fiche.verdicts if verdict.renseigne}
 
 
 def verdict(identifiant: str, renseigne: bool) -> VerdictItem:
@@ -65,7 +70,7 @@ def test_un_item_n_est_cotable_que_si_le_cadre_de_son_module_est_etabli() -> Non
         ]
     )
 
-    assert registre().renseignes_effectifs(fiche) == set()
+    assert registre().cotables(renseignes(fiche), set()) == set()
 
 
 def test_le_cadre_etabli_une_fois_rend_cotables_les_items_renseignes_du_module() -> None:
@@ -78,14 +83,14 @@ def test_le_cadre_etabli_une_fois_rend_cotables_les_items_renseignes_du_module()
         ]
     )
 
-    assert registre().renseignes_effectifs(fiche) == {"A1", "A_cadre"}
+    assert registre().cotables(renseignes(fiche), set()) == {"A1"}
 
 
 def test_un_module_sans_qualificatif_ne_subit_aucun_heritage() -> None:
     """Le Module B n'en a pas : ses Items valent ce que la détection en dit, sans condition."""
     fiche = Fiche(verdicts=[verdict("B1", renseigne=True), verdict("A_cadre", renseigne=False)])
 
-    assert "B1" in registre().renseignes_effectifs(fiche)
+    assert "B1" in registre().cotables(renseignes(fiche), set())
 
 
 def test_la_detection_rend_un_verdict_pour_le_qualificatif() -> None:
@@ -170,3 +175,69 @@ def test_le_contenu_obtenu_sans_cadre_etabli_est_rapporte_comme_non_cotable() ->
     mesures = evaluer([(fiche, fiche)], registre())
 
     assert mesures.conduite.non_cotables_faute_de_cadre == {"A1": 1, "A2": 1}
+
+
+def test_deux_qualificatifs_sur_un_meme_module_sont_refuses() -> None:
+    """Seul le premier serait présenté au modèle, mais tous seraient exigés de la commande.
+
+    Le second serait donc réclamé à la Spécification et jamais collecté : une génération
+    impossible à satisfaire, pour une raison invisible.
+    """
+    with pytest.raises(ValidationError):
+        RegistreDItems(
+            items=[item("A1")],
+            qualificatifs=[
+                Qualificatif(
+                    identifiant="A_cadre", module="A", construct_sonde="durée", source="test"
+                ),
+                Qualificatif(
+                    identifiant="A_frequence",
+                    module="A",
+                    construct_sonde="fréquence",
+                    source="test",
+                ),
+            ],
+        )
+
+
+def test_un_module_correctement_ecarte_ne_vaut_aucun_reproche() -> None:
+    """Le clinicien demande les deux filtres, établit qu'ils sont négatifs, et passe.
+
+    C'est la conduite correcte, et le MINI la prévoit explicitement. Rien ne doit lui être
+    reproché : ni oubli sur le cadre temporel — un module écarté n'a pas d'ancienneté à
+    dater — ni item non cotable faute de ce cadre. On ne demande pas depuis quand dure un
+    symptôme qui n'est pas là.
+    """
+    registre = registre_module_a_reduit()
+    conduite_correcte = Fiche(
+        verdicts=[
+            VerdictItem(
+                identifiant="A1",
+                sollicite=True,
+                renseigne=True,
+                positif=False,
+                empans=[
+                    EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="Depuis"),
+                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Un mois"),
+                ],
+            ),
+            VerdictItem(
+                identifiant="A2",
+                sollicite=True,
+                renseigne=True,
+                positif=False,
+                empans=[
+                    EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="Depuis"),
+                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT, passage="Un mois"),
+                ],
+            ),
+            VerdictItem(identifiant="A3a", sollicite=False, renseigne=False, empans=[]),
+            VerdictItem(identifiant="A_cadre", sollicite=False, renseigne=False, empans=[]),
+        ]
+    )
+
+    mesures = evaluer([(conduite_correcte, conduite_correcte)], registre)
+
+    assert mesures.conduite.oublis == {}
+    assert mesures.conduite.non_cotables_faute_de_cadre == {}
+    assert mesures.conduite.questions_inutiles == {}

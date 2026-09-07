@@ -9,10 +9,11 @@ MINI, et non la couverture du MINI.
 """
 
 from collections.abc import Mapping
+from collections.abc import Set as AbstractSet
 
 from pydantic import BaseModel, Field, model_validator
 
-from minerva.domaine import Fiche, Polarite
+from minerva.domaine import Polarite
 
 
 class Porte(BaseModel):
@@ -83,18 +84,27 @@ class Porte(BaseModel):
 Porte.model_rebuild()
 
 
-class Item(BaseModel):
-    """Une entrée du Registre : le construct qu'un Item du MINI sonde, et d'où il vient."""
+class EntreeDuRegistre(BaseModel):
+    """Ce que toute entrée du Registre porte, quelle que soit sa nature.
+
+    La source est exigée ici et nulle part ailleurs : c'est ADR-0003 appliqué en un seul
+    endroit plutôt que redit à chaque type.
+    """
 
     identifiant: str
     module: str
     construct_sonde: str
     source: str
+
+
+class Item(EntreeDuRegistre):
+    """Une entrée qui correspond à une question numérotée du MINI."""
+
     porte: Porte | None = None
     """Porte du second étage : ce qui doit être vrai pour que cet Item soit attendu."""
 
 
-class Qualificatif(BaseModel):
+class Qualificatif(EntreeDuRegistre):
     """Une entrée du Registre de portée Module, dont les Items du Module héritent.
 
     Cadre temporel, fréquence : ce que le MINI présente en tête de module et que le
@@ -105,19 +115,26 @@ class Qualificatif(BaseModel):
     n'établit jamais l'ancienneté des troubles.
     """
 
-    identifiant: str
-    module: str
-    construct_sonde: str
-    source: str
-
 
 class RegistreDItems(BaseModel):
-    """Les Items connus de MINERVA, groupés par Module."""
+    """Les entrées connues de MINERVA — Items et Qualificatifs — groupées par Module."""
 
     items: list[Item]
     qualificatifs: list[Qualificatif] = []
     portes_de_module: dict[str, Porte] = {}
     """Portes du premier étage : le filtre en tête de chaque Module qui en a un."""
+
+    @model_validator(mode="after")
+    def _un_seul_qualificatif_par_module(self) -> "RegistreDItems":
+        modules = [qualificatif.module for qualificatif in self.qualificatifs]
+        doublons = sorted({module for module in modules if modules.count(module) > 1})
+        if doublons:
+            raise ValueError(
+                f"plusieurs Qualificatifs pour le ou les Modules {', '.join(doublons)} : "
+                "seul le premier serait présenté au modèle, les autres seraient exigés de "
+                "la Spécification sans jamais être collectés"
+            )
+        return self
 
     def modules(self) -> list[str]:
         modules = [item.module for item in self.items]
@@ -144,36 +161,29 @@ class RegistreDItems(BaseModel):
     def qualificatif_du_module(self, module: str) -> Qualificatif | None:
         return next((q for q in self.qualificatifs if q.module == module), None)
 
-    def renseignes_effectifs(self, fiche: Fiche) -> set[str]:
-        """Les entrées réellement cotables, héritage du Qualificatif appliqué.
+    def cotables(self, renseignes: AbstractSet[str], non_applicables: AbstractSet[str]) -> set[str]:
+        """Les Items cotables : contenu renseigné **et** cadre de leur Module établi.
 
-        Un Item n'est cotable que si son contenu **et** le cadre temporel de son Module
-        sont établis : le MINI cote sur une durée et une fréquence, pas sur un symptôme
-        nu. Un Module sans Qualificatif n'impose rien.
+        Le MINI cote sur une durée et une fréquence, pas sur un symptôme nu. Un Module
+        sans Qualificatif n'impose aucun cadre, et ses Items sont cotables dès qu'ils sont
+        renseignés.
 
-        Le Qualificatif, lui, ne dépend que de lui-même.
+        L'exigence de cadre tombe quand le Qualificatif est lui-même Non-applicable : le
+        Module a été écarté à raison, il n'y a rien à dater.
+
+        Ne rend que des Items : un Qualificatif est une condition de cotation, pas une
+        chose qu'on cote.
         """
-        verdicts = fiche.par_identifiant()
         cadres = {
-            qualificatif.module: bool(
-                (verdict := verdicts.get(qualificatif.identifiant)) and verdict.renseigne
-            )
+            qualificatif.module: qualificatif.identifiant in renseignes
+            or qualificatif.identifiant in non_applicables
             for qualificatif in self.qualificatifs
         }
-
-        effectifs = {
+        return {
             item.identifiant
             for item in self.items
-            if (verdict := verdicts.get(item.identifiant))
-            and verdict.renseigne
-            and cadres.get(item.module, True)
+            if item.identifiant in renseignes and cadres.get(item.module, True)
         }
-        effectifs |= {
-            qualificatif.identifiant
-            for qualificatif in self.qualificatifs
-            if cadres[qualificatif.module]
-        }
-        return effectifs
 
     def items_filtres(self) -> set[str]:
         """Les Items dont le graphe a besoin de la polarité, et eux seuls.
@@ -204,30 +214,19 @@ class RegistreDItems(BaseModel):
             for module, porte in self.portes_de_module.items()
             if porte.evaluer(polarites) is False
         }
-        return {
-            item.identifiant
-            for item in self.items
-            if (
-                item.module in modules_fermes
-                and item.identifiant not in modules_fermes[item.module]
-            )
-            or (item.porte is not None and item.porte.evaluer(polarites) is False)
-        }
-
-    def decrire_module(self, module: str) -> str:
-        """Les entrées d'un Module telles qu'on les présente à un modèle."""
-        lignes = [
-            f"- {item.identifiant} : {item.construct_sonde}"
-            for item in self.items_du_module(module)
+        entrees: list[tuple[str, str, Porte | None]] = [
+            (item.identifiant, item.module, item.porte) for item in self.items
         ]
-        qualificatif = self.qualificatif_du_module(module)
-        if qualificatif is not None:
-            lignes.append(
-                f"- {qualificatif.identifiant} : {qualificatif.construct_sonde} "
-                "(cadre du module, à établir une seule fois — il vaut pour tous les items "
-                "ci-dessus)"
-            )
-        return "\n".join(lignes)
+        # Un Qualificatif suit le sort de son Module : un Module écarté n'a pas
+        # d'ancienneté à dater, et lui réclamer son cadre serait un reproche absurde.
+        entrees += [(q.identifiant, q.module, None) for q in self.qualificatifs]
+
+        return {
+            identifiant
+            for identifiant, module, porte in entrees
+            if (module in modules_fermes and identifiant not in modules_fermes[module])
+            or (porte is not None and porte.evaluer(polarites) is False)
+        }
 
     def entrees_du_module(self, module: str) -> list[str]:
         """Les identifiants attendus dans une Fiche pour ce Module, Qualificatif compris."""
