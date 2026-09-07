@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Outils
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Instrument sous licence — voir ADR-0002 : le texte du MINI n'entre jamais
+# dans le dépôt. Un opérateur licencié dépose ses libellés ici, hors versionnement.
+libelles_mini*
+*.mini.json

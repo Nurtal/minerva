@@ -76,6 +76,10 @@ _Éviter_ : récupéré, obtenu, couvert, rempli, complété
 Propriété d'un item que la logique de filtre du MINI écarte légitimement, compte tenu de ce qui a été renseigné plus tôt dans l'entretien. Un item non-applicable n'est pas un oubli.
 _Éviter_ : sauté, ignoré, hors périmètre, N/A
 
+**Fiche** :
+L'ensemble des verdicts d'un Entretien, un par Item du Registre. La Spécification en porte une et la détection en rend une : c'est le même type des deux côtés, ce qui fait de l'évaluation un diff.
+_Éviter_ : rapport, résultat, sortie, grille
+
 **Empan de preuve** :
 Un passage exact de la retranscription établissant qu'un item est sollicité, ou qu'il est renseigné, conservé avec sa position et le rôle qu'il joue. Un item porte plusieurs empans, un empan peut servir plusieurs items. Seule forme sous laquelle MINERVA conserve le contenu d'un item.
 _Éviter_ : citation, extrait, span, justification
