@@ -51,7 +51,9 @@ Rappels :
 - un item peut être renseigné sans avoir été sollicité, et sollicité sans être renseigné.
 
 Pour chaque propriété vraie, cite les tours qui l'établissent par leur indice : role
-"sollicitation" pour un tour du clinicien, "renseignement" pour un tour du patient.
+"sollicitation" pour un tour du clinicien, "renseignement" pour un tour du patient. Pour
+chaque empan, recopie le passage exact — un extrait littéral du tour cité, pas une
+reformulation, et le fragment utile plutôt que le tour entier.
 
 Items :
 {items}
@@ -98,7 +100,7 @@ def _verifier(produit: Entretien, specification: Specification, registre: Regist
     """Vérifie que l'Entretien réalise la commande, et rend la Fiche de référence."""
     _verifier_retranscription(produit.retranscription)
 
-    locuteur_du_tour = {tour.indice: tour.locuteur for tour in produit.retranscription.tours}
+    tours = {tour.indice: tour for tour in produit.retranscription.tours}
     vises = specification.fiche_visee.par_identifiant()
     rendus = produit.reference.par_identifiant()
     reference: list[VerdictItem] = []
@@ -121,15 +123,20 @@ def _verifier(produit: Entretien, specification: Specification, registre: Regist
                 )
 
         for empan in obtenu.empans:
-            locuteur = locuteur_du_tour.get(empan.indice_tour)
-            if locuteur is None:
+            tour = tours.get(empan.indice_tour)
+            if tour is None:
                 raise GenerationInfidele(
                     f"{identifiant} : empan sur le tour {empan.indice_tour}, qui n'existe pas"
                 )
-            if locuteur is not empan.role.locuteur:
+            if tour.locuteur is not empan.role.locuteur:
                 raise GenerationInfidele(
                     f"{identifiant} : empan de {empan.role.value} sur le tour "
-                    f"{empan.indice_tour}, qui est un tour du {locuteur.value}"
+                    f"{empan.indice_tour}, qui est un tour du {tour.locuteur.value}"
+                )
+            if empan.passage not in tour.texte:
+                raise GenerationInfidele(
+                    f"{identifiant} : le passage cité au tour {empan.indice_tour} "
+                    f"ne figure pas dans ce tour"
                 )
 
         reference.append(obtenu)

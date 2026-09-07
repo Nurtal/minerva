@@ -53,13 +53,17 @@ class RoleEmpan(StrEnum):
 class EmpanDePreuve(BaseModel):
     """Un passage de la Retranscription établissant qu'un Item est sollicité ou renseigné.
 
-    La position est l'indice du Tour de parole. Un Item porte plusieurs Empans et un
-    même Tour peut servir plusieurs Items : la relation est plusieurs-à-plusieurs, ce
-    qui est ce qui permet de reconnaître une question groupée.
+    Le passage est conservé tel quel, en plus de sa position : une Fiche seule doit
+    pouvoir être lue sans la Retranscription. C'est de la dénormalisation assumée, et
+    c'est ce qui donne à l'Empan une granularité plus fine que le Tour entier.
+
+    Un Item porte plusieurs Empans et un même Tour peut servir plusieurs Items : la
+    relation est plusieurs-à-plusieurs, ce qui permet de reconnaître une question groupée.
     """
 
     indice_tour: int
     role: RoleEmpan
+    passage: str
 
 
 class Propriete(StrEnum):

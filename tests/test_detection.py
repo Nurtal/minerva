@@ -38,8 +38,14 @@ def test_la_detection_rend_les_verdicts_produits_par_le_modele() -> None:
                 sollicite=True,
                 renseigne=True,
                 empans=[
-                    EmpanDePreuve(indice_tour=0, role=RoleEmpan.SOLLICITATION),
-                    EmpanDePreuve(indice_tour=1, role=RoleEmpan.RENSEIGNEMENT),
+                    EmpanDePreuve(
+                        indice_tour=0, role=RoleEmpan.SOLLICITATION, passage="votre moral"
+                    ),
+                    EmpanDePreuve(
+                        indice_tour=1,
+                        role=RoleEmpan.RENSEIGNEMENT,
+                        passage="Très bas depuis un mois",
+                    ),
                 ],
             )
         ]

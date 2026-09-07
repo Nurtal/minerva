@@ -86,11 +86,11 @@ def verdict(
         renseigne=renseigne,
         empans=[
             *(
-                EmpanDePreuve(indice_tour=tour, role=RoleEmpan.SOLLICITATION)
+                EmpanDePreuve(indice_tour=tour, role=RoleEmpan.SOLLICITATION, passage="question")
                 for tour in tours_sollicitation
             ),
             *(
-                EmpanDePreuve(indice_tour=tour, role=RoleEmpan.RENSEIGNEMENT)
+                EmpanDePreuve(indice_tour=tour, role=RoleEmpan.RENSEIGNEMENT, passage="réponse")
                 for tour in tours_renseignement
             ),
         ],

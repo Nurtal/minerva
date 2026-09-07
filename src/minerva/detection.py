@@ -23,6 +23,9 @@ Pour chaque propriété vraie, cite les tours de parole qui l'établissent, par 
 role "sollicitation" pour un tour du clinicien qui pose la question, role "renseignement"
 pour un tour du patient qui apporte le contenu. Un même tour peut servir plusieurs items.
 
+Pour chaque empan, recopie aussi le passage exact qui l'établit : un extrait littéral du
+tour cité, pas une reformulation. Cite le fragment utile, pas le tour entier.
+
 Ne cote pas les items et ne pose aucun diagnostic : dis seulement ce que l'entretien couvre.
 
 Items du module {module} :

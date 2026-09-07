@@ -72,15 +72,23 @@ def test_de_la_specification_aux_chiffres() -> None:
                     sollicite=True,
                     renseigne=True,
                     empans=[
-                        EmpanDePreuve(indice_tour=0, role=SOLLICITATION),
-                        EmpanDePreuve(indice_tour=1, role=RENSEIGNEMENT),
+                        EmpanDePreuve(
+                            indice_tour=0, role=SOLLICITATION, passage="Comment est le moral"
+                        ),
+                        EmpanDePreuve(
+                            indice_tour=1, role=RENSEIGNEMENT, passage="Au plus bas, depuis un mois"
+                        ),
                     ],
                 ),
                 VerdictItem(
                     identifiant="A2",
                     sollicite=True,
                     renseigne=False,
-                    empans=[EmpanDePreuve(indice_tour=2, role=SOLLICITATION)],
+                    empans=[
+                        EmpanDePreuve(
+                            indice_tour=2, role=SOLLICITATION, passage="le plaisir aux choses"
+                        )
+                    ],
                 ),
                 VerdictItem(identifiant="A3a", sollicite=False, renseigne=False, empans=[]),
             ]
@@ -94,8 +102,12 @@ def test_de_la_specification_aux_chiffres() -> None:
                 sollicite=True,
                 renseigne=True,
                 empans=[
-                    EmpanDePreuve(indice_tour=0, role=SOLLICITATION),
-                    EmpanDePreuve(indice_tour=1, role=RENSEIGNEMENT),
+                    EmpanDePreuve(
+                        indice_tour=0, role=SOLLICITATION, passage="Comment est le moral"
+                    ),
+                    EmpanDePreuve(
+                        indice_tour=1, role=RENSEIGNEMENT, passage="Au plus bas, depuis un mois"
+                    ),
                 ],
             ),
             VerdictItem(
@@ -103,8 +115,10 @@ def test_de_la_specification_aux_chiffres() -> None:
                 sollicite=True,
                 renseigne=True,
                 empans=[
-                    EmpanDePreuve(indice_tour=2, role=SOLLICITATION),
-                    EmpanDePreuve(indice_tour=3, role=RENSEIGNEMENT),
+                    EmpanDePreuve(
+                        indice_tour=2, role=SOLLICITATION, passage="le plaisir aux choses"
+                    ),
+                    EmpanDePreuve(indice_tour=3, role=RENSEIGNEMENT, passage="Je ne sais pas trop"),
                 ],
             ),
         ]
