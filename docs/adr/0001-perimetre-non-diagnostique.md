@@ -7,4 +7,5 @@ La raison est réglementaire autant que scientifique. Le MINI est construit pour
 ## Conséquences
 
 - Un item renseigné est conservé sous forme d'empans de preuve, pas de valeur cotée.
+- Une exception étroite a été ouverte depuis, pour les seuls Items filtres du graphe de saut : voir [ADR-0006](./0006-polarite-des-items-filtres.md). Elle ne porte que sur le branchement de l'entretien, et le périmètre non-diagnostique tient.
 - L'usage recherche et audit rétrospectif est dans le périmètre. Un feedback pédagogique différé au clinicien y reste. Une assistance à l'entretien en temps réel, ou toute cotation, n'y sont pas.

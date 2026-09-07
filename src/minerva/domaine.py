@@ -92,6 +92,13 @@ class VerdictItem(BaseModel):
     sollicite: bool
     renseigne: bool
     empans: list[EmpanDePreuve]
+    positif: bool | None = None
+    """Polarité, pour les seuls Items filtres du graphe de saut — voir ADR-0006.
+
+    `None` signifie indéterminée : soit l'Item n'est pas un filtre et MINERVA ne le code
+    pas, soit c'est un filtre que l'Entretien n'a pas établi. Une polarité indéterminée
+    n'écarte jamais rien.
+    """
 
     @classmethod
     def negatif(cls, identifiant: str) -> "VerdictItem":
@@ -119,6 +126,10 @@ class Fiche(BaseModel):
 
     def identifiants(self) -> set[str]:
         return {verdict.identifiant for verdict in self.verdicts}
+
+    def polarites(self) -> dict[str, bool | None]:
+        """Les polarités portées par cette Fiche, pour dérouler le graphe de saut."""
+        return {verdict.identifiant: verdict.positif for verdict in self.verdicts}
 
 
 class Entretien(BaseModel):

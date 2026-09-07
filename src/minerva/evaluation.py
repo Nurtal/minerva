@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from minerva.domaine import Fiche, Propriete
+from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
 """Une Fiche de référence et la Fiche prédite pour le même Entretien."""
@@ -31,6 +32,26 @@ class MesureBinaire:
 
 
 @dataclass(frozen=True)
+class MesureApplicabilite:
+    """Ce que le graphe de saut dit, dérivé deux fois, et ce qu'il révèle de l'Entretien.
+
+    Les deux premiers champs séparent l'erreur de propagation de l'erreur de détection ;
+    les deux derniers ne parlent plus du détecteur mais du Clinicien.
+    """
+
+    accord: float
+    """Part des Items où l'applicabilité dérivée des prédictions rejoint celle de référence."""
+    ecartes_a_tort: tuple[str, ...]
+    """Items que la prédiction écarte alors que la référence les attendait : l'effondrement."""
+    retenus_a_tort: tuple[str, ...]
+    """Items que la prédiction attend alors que la référence les écartait."""
+    questions_inutiles: tuple[str, ...]
+    """Items écartés par le graphe et pourtant sollicités par le Clinicien."""
+    oublis: tuple[str, ...]
+    """Items attendus par le graphe et que le Clinicien n'a pas sollicités."""
+
+
+@dataclass(frozen=True)
 class Mesures:
     """Les chiffres rendus pour un corpus.
 
@@ -41,6 +62,7 @@ class Mesures:
     sollicite: MesureBinaire
     renseigne: MesureBinaire
     taux_ancrage: float
+    applicabilite: MesureApplicabilite
 
 
 @dataclass(frozen=True)
@@ -135,7 +157,50 @@ def _ancrage(paires: Sequence[PaireFiches]) -> float:
     return ancres / total if total else 0.0
 
 
-def evaluer(paires: Sequence[PaireFiches]) -> Mesures:
+def _applicabilite(
+    paires: Sequence[PaireFiches], registre: RegistreDItems
+) -> MesureApplicabilite:
+    identifiants = registre.identifiants()
+    accords = total = 0
+    ecartes_a_tort: set[str] = set()
+    retenus_a_tort: set[str] = set()
+    inutiles: set[str] = set()
+    oublis: set[str] = set()
+
+    for reference, prediction in paires:
+        selon_reference = registre.non_applicables(reference.polarites())
+        selon_prediction = registre.non_applicables(prediction.polarites())
+        verdicts_reference = reference.par_identifiant()
+
+        for identifiant in identifiants:
+            ecarte_reference = identifiant in selon_reference
+            ecarte_prediction = identifiant in selon_prediction
+            total += 1
+            if ecarte_reference == ecarte_prediction:
+                accords += 1
+            elif ecarte_prediction:
+                ecartes_a_tort.add(identifiant)
+            else:
+                retenus_a_tort.add(identifiant)
+
+            # Le croisement décrit l'Entretien, pas le détecteur : il se lit sur la référence.
+            verdict = verdicts_reference.get(identifiant)
+            sollicite = bool(verdict and verdict.sollicite)
+            if ecarte_reference and sollicite:
+                inutiles.add(identifiant)
+            elif not ecarte_reference and not sollicite:
+                oublis.add(identifiant)
+
+    return MesureApplicabilite(
+        accord=accords / total if total else 0.0,
+        ecartes_a_tort=tuple(sorted(ecartes_a_tort)),
+        retenus_a_tort=tuple(sorted(retenus_a_tort)),
+        questions_inutiles=tuple(sorted(inutiles)),
+        oublis=tuple(sorted(oublis)),
+    )
+
+
+def evaluer(paires: Sequence[PaireFiches], registre: RegistreDItems) -> Mesures:
     """Rend les chiffres pour un corpus de Fiches appariées.
 
     Le F1 d'un Item se calcule sur l'ensemble des Entretiens du corpus, puis se moyenne
@@ -146,4 +211,5 @@ def evaluer(paires: Sequence[PaireFiches]) -> Mesures:
         sollicite=_mesurer(paires, Propriete.SOLLICITE),
         renseigne=_mesurer(paires, Propriete.RENSEIGNE),
         taux_ancrage=_ancrage(paires),
+        applicabilite=_applicabilite(paires, registre),
     )

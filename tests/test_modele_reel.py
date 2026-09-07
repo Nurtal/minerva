@@ -38,7 +38,7 @@ def test_la_chaine_tourne_contre_un_modele_reel() -> None:
 
     entretien = generer(specification, registre, modele)
     prediction = detecter(entretien.retranscription, registre, modele)
-    mesures = evaluer([(entretien.reference, prediction)])
+    mesures = evaluer([(entretien.reference, prediction)], registre)
 
     assert entretien.retranscription.tours, "le modèle doit produire un entretien non vide"
     assert all(

@@ -44,6 +44,14 @@ _Éviter_ : question, critère, symptôme
 Une entrée du registre de portée module — cadre temporel, fréquence — dont les items du module héritent. Se sollicite et se renseigne comme un item, sans correspondre à une question du MINI.
 _Éviter_ : critère temporel, contrainte, modificateur
 
+**Porte** :
+Une condition du registre qui décide si un item est attendu : au moins tant d'opérandes vrais parmi un ensemble d'items filtres et de sous-portes. En tête de module, elle écarte tout le module ; en cours de module, elle n'écarte que ce qu'elle garde.
+_Éviter_ : filtre, condition, garde, saut
+
+**Polarité** :
+La réponse à un item filtre — positive, négative, ou indéterminée. Seuls les items qu'une porte référence en portent une. C'est un fait de branchement de l'entretien, jamais une cotation.
+_Éviter_ : valeur, cotation, score, réponse
+
 **Registre d'items** :
 La description structurée des items du MINI utilisée par MINERVA — identifiant stable, module, construct sondé, qualificatifs requis, relations de filtre. Ne contient pas le libellé officiel des items, qui reste hors du dépôt.
 _Éviter_ : référentiel, base d'items, grille
@@ -73,7 +81,7 @@ Propriété d'un item pour lequel l'entretien fournit de quoi le coter selon les
 _Éviter_ : récupéré, obtenu, couvert, rempli, complété
 
 **Non-applicable** :
-Propriété d'un item que la logique de filtre du MINI écarte légitimement, compte tenu de ce qui a été renseigné plus tôt dans l'entretien. Un item non-applicable n'est pas un oubli.
+Propriété d'un item dont une porte est établie et négative. Un item non-applicable n'est pas un oubli. Une porte indéterminée n'écarte rien : ne pas avoir demandé n'excuse pas.
 _Éviter_ : sauté, ignoré, hors périmètre, N/A
 
 **Fiche** :
