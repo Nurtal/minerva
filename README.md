@@ -48,7 +48,7 @@ print(decrire_fiche(fiche, registre, depuis_l_environnement()))
 
 Variable non posée, aucune licence, la chaîne tourne : c'est le mode nominal. Variable posée mais vide, ou désignant un fichier absent, est en revanche une erreur et non un repli silencieux — sans quoi un opérateur croirait lire les formulations officielles et lirait des constructs reconstruits.
 
-Le dépôt n'a pas encore d'exécutable qui compose ces deux lignes ; c'est le seul reliquat connu de cette fonctionnalité.
+Composer ces deux lignes revient au programme appelant. Ce dépôt fournit le mécanisme et jamais le lancement : l'usage de l'outil relève d'un projet distinct, avec son propre cadre (voir [Périmètre](#périmètre)). C'est aussi la lettre d'ADR-0002, dont la conséquence est qu'un opérateur licencié *fournit* son fichier — le lancer n'appartient pas à ce dépôt.
 
 **Nommez ce fichier `libelles_mini*.json`** — par exemple `libelles_mini_7.0.2_fr.json`. C'est le motif que `.gitignore` connaît, et le seul qui garantisse que le texte sous copyright ne parte pas dans un commit. Un fichier nommé autrement serait suivi par git, ce qui est précisément ce qu'ADR-0002 existe pour empêcher.
 
