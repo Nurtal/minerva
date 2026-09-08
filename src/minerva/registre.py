@@ -451,3 +451,312 @@ def registre_module_a_reduit() -> RegistreDItems:
             ),
         ],
     )
+
+
+_HYPOTHESE_DE_NUMEROTATION = """\
+La numérotation du MINI n'a pas pu être vérifiée. L'instrument est sous licence, et les
+seules copies intégrales accessibles en ligne sont des republications non autorisées —
+celles-là mêmes que l'ADR-0002 cite comme illégales. La décomposition ci-dessous est donc
+une hypothèse, déclarée comme telle :
+
+- `A1` et `A2` portent les deux symptômes d'entrée, et `A3a` à `A3g` les sept symptômes
+  additionnels. Ce découpage prolonge celui que le dépôt utilisait déjà pour le tracer
+  bullet ; il n'est pas lu dans l'instrument.
+- `A3a` reste le sommeil, comme dans le Registre réduit, alors que le DSM-5-TR place
+  l'appétit avant lui. Conserver l'affectation existante évite une renumérotation qui
+  invaliderait les Corpus déjà produits, mais elle est arbitraire.
+- L'issue #5 annonce six Items et quinze questions cotées. Cette reconstruction porte les
+  neuf critères symptomatiques, soit les seuls que le DSM-5-TR et la CIM-11 définissent
+  explicitement. Le retentissement fonctionnel, la récurrence et les spécificateurs, que
+  l'instrument numérote aussi, ne sont pas reconstruits : aucune des deux sources ne dit
+  comment le MINI les numérote, et les inventer donnerait un Registre faussement complet.
+
+Le jour où une licence est obtenue, la vérification est un diff sur ces identifiants —
+c'est précisément la conséquence qu'ADR-0003 cherchait à préserver.
+"""
+
+
+def registre_module_a() -> RegistreDItems:
+    """Le Module A : épisode dépressif caractérisé, neuf critères symptomatiques.
+
+    Chaque construct est lu deux fois — DSM-5-TR et CIM-11 — et l'écart conservé quand les
+    nosographies divergent (ADR-0003). Les constructs sont exprimés dans nos termes :
+    aucun libellé du MINI ne figure ici (ADR-0002).
+
+    Sur la numérotation, qui est une hypothèse et non une lecture : voir
+    `_HYPOTHESE_DE_NUMEROTATION` juste au-dessus. Le résumé tient en une phrase — le MINI
+    est sous licence, sa numérotation n'a pas pu être vérifiée, et ce découpage prolonge
+    celui du Registre réduit sans être lu dans l'instrument.
+    """
+    return RegistreDItems(
+        qualificatifs=[
+            Qualificatif(
+                identifiant="A_cadre",
+                module="A",
+                construct_sonde=(
+                    "Ancienneté et permanence des troubles : présents depuis au moins deux "
+                    "semaines, la majeure partie du temps, presque tous les jours."
+                ),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A : symptômes présents sur une même période de deux "
+                            "semaines, la majeure partie de la journée, presque tous les jours."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Cinq symptômes présents conjointement la majeure partie de la "
+                            "journée, presque tous les jours, sur deux semaines."
+                        ),
+                    ),
+                ),
+            )
+        ],
+        portes_de_module={
+            "A": Porte(
+                au_moins=1,
+                parmi=["A1", "A2"],
+                source=(
+                    f"{DSM} L'épisode requiert l'humeur dépressive ou la perte d'intérêt. "
+                    f"Recoupé par : {CIM} La grappe affective porte exactement ces deux "
+                    "symptômes, et au moins un des cinq requis doit en venir — les deux "
+                    "nosographies s'accordent sur la porte, par des chemins différents."
+                ),
+            )
+        },
+        items=[
+            Item(
+                identifiant="A1",
+                module="A",
+                construct_sonde=(
+                    "Humeur dépressive présente la majeure partie de la journée, presque "
+                    "tous les jours, depuis au moins deux semaines."
+                ),
+                provenances=(
+                    Provenance(source=DSM, construct_lu="Critère A1 : humeur dépressive."),
+                    Provenance(
+                        source=CIM,
+                        construct_lu="Grappe affective, premier symptôme : humeur dépressive.",
+                    ),
+                ),
+            ),
+            Item(
+                identifiant="A2",
+                module="A",
+                construct_sonde=(
+                    "Diminution marquée de l'intérêt ou du plaisir pour toutes ou presque "
+                    "toutes les activités, sur la même période."
+                ),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu="Critère A2 : diminution marquée de l'intérêt ou du plaisir.",
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe affective, second symptôme : diminution de l'intérêt "
+                            "ou du plaisir."
+                        ),
+                    ),
+                ),
+            ),
+            Item(
+                identifiant="A3a",
+                module="A",
+                construct_sonde=(
+                    "Insomnie ou hypersomnie presque tous les jours sur la même période."
+                ),
+                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A4 : insomnie ou hypersomnie, symptôme distinct du "
+                            "critère A3 qui porte l'appétit et le poids."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe neurovégétative. La liste MMS réunit « modification de "
+                            "l'appétit ou du sommeil » en un seul symptôme ; les CDDR les "
+                            "séparent, d'où dix critères là où la MMS en compte neuf."
+                        ),
+                    ),
+                ),
+                ecart=(
+                    "Le sommeil n'a pas le même grain selon la source. Le DSM-5-TR en fait "
+                    "un critère à part entière, distinct de l'appétit ; la CIM-11 le réunit "
+                    "à l'appétit dans sa liste MMS et ne l'en sépare que dans les CDDR. Un "
+                    "entretien qui n'explore que le sommeil renseigne pleinement le critère "
+                    "DSM et à moitié le symptôme MMS. À ne pas lire comme un item sûr."
+                ),
+            ),
+            Item(
+                identifiant="A3b",
+                module="A",
+                construct_sonde=(
+                    "Modification de l'appétit ou variation de poids significative, non "
+                    "intentionnelle, sur la même période."
+                ),
+                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A3 : perte ou gain de poids significatif, ou "
+                            "modification de l'appétit presque tous les jours."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe neurovégétative, réuni au sommeil dans la liste MMS et "
+                            "séparé dans les CDDR."
+                        ),
+                    ),
+                ),
+                ecart=(
+                    "Même écart de grain que A3a, vu de l'autre côté : ce que le DSM-5-TR "
+                    "sépare en deux critères, la liste MMS de la CIM-11 réunit en un. Les "
+                    "deux items sont solidaires de cette divergence."
+                ),
+            ),
+            Item(
+                identifiant="A3c",
+                module="A",
+                construct_sonde=(
+                    "Agitation ou ralentissement psychomoteur, observable par autrui et non "
+                    "réduit à un sentiment subjectif."
+                ),
+                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu="Critère A5 : agitation ou ralentissement psychomoteur.",
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe neurovégétative : agitation ou ralentissement psychomoteur."
+                        ),
+                    ),
+                ),
+            ),
+            Item(
+                identifiant="A3d",
+                module="A",
+                construct_sonde="Fatigue ou perte d'énergie presque tous les jours.",
+                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
+                provenances=(
+                    Provenance(source=DSM, construct_lu="Critère A6 : fatigue ou perte d'énergie."),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe neurovégétative : énergie réduite ou épuisement. La "
+                            "CIM-10 en faisait un symptôme principal ; la CIM-11 l'a "
+                            "reclassé parmi les symptômes additionnels."
+                        ),
+                    ),
+                ),
+                ecart=(
+                    "La fatigue a changé de rang entre les révisions de la CIM : symptôme "
+                    "principal en CIM-10, symptôme additionnel en CIM-11, alignée sur le "
+                    "DSM. Les deux sources retenues s'accordent donc aujourd'hui, mais un "
+                    "instrument construit sur la CIM-10 la traiterait comme une question "
+                    "d'entrée. À surveiller si le Registre sert un jour à comparer des "
+                    "entretiens conduits sous l'ancienne classification."
+                ),
+            ),
+            Item(
+                identifiant="A3e",
+                module="A",
+                construct_sonde=(
+                    "Sentiment de dévalorisation, ou culpabilité excessive ou inappropriée."
+                ),
+                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A7 : sentiment de dévalorisation ou culpabilité "
+                            "excessive ou inappropriée."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe cognitivo-comportementale : faible estime de soi, "
+                            "distincte du désespoir, qui y figure comme symptôme séparé."
+                        ),
+                    ),
+                ),
+                ecart=(
+                    "La CIM-11 porte le désespoir comme symptôme à part entière de sa "
+                    "grappe cognitivo-comportementale ; le DSM-5-TR ne le retient pas comme "
+                    "critère. La numérotation de ce Registre étant calée sur le DSM, le "
+                    "désespoir n'a aucune case ici : un entretien qui l'explore ne "
+                    "renseigne rien de mesurable. C'est le trou de couverture le plus net "
+                    "de la reconstruction, et il est structurel, pas accidentel."
+                ),
+            ),
+            Item(
+                identifiant="A3f",
+                module="A",
+                construct_sonde=(
+                    "Diminution de l'aptitude à penser ou à se concentrer, ou indécision."
+                ),
+                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A8 : diminution de l'aptitude à penser ou à se "
+                            "concentrer, ou indécision."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe cognitivo-comportementale : difficultés de concentration."
+                        ),
+                    ),
+                ),
+            ),
+            Item(
+                identifiant="A3g",
+                module="A",
+                construct_sonde=(
+                    "Pensées de mort récurrentes, idées suicidaires, ou geste ou plan suicidaire."
+                ),
+                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A9 : pensées de mort récurrentes, idées suicidaires "
+                            "sans plan précis, tentative, ou plan précis."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe cognitivo-comportementale : pensées de mort récurrentes "
+                            "ou actes suicidaires."
+                        ),
+                    ),
+                ),
+                ecart=(
+                    "Le Module B porte le risque suicidaire pour lui-même. Un entretien qui "
+                    "explore le suicide renseigne donc potentiellement une entrée de chaque "
+                    "module, et les empans de preuve se recouvriront. Ce n'est pas un "
+                    "désaccord entre nosographies mais un chevauchement de l'instrument, à "
+                    "trancher quand le Module B entrera au Registre."
+                ),
+            ),
+        ],
+    )
