@@ -272,3 +272,46 @@ def test_une_variable_posee_mais_vide_est_une_intention_trahie(
 
         with pytest.raises(LibellesIllisibles, match=VARIABLE_LIBELLES):
             depuis_l_environnement()
+
+
+def test_un_chemin_entoure_d_espaces_designe_bien_le_fichier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une fin de ligne ou un `.env` généreux ne doivent pas coûter une heure de débogage.
+
+    Rogner pour contrôler puis ouvrir la valeur brute donnait le pire message possible :
+    un chemin dont les espaces sont invisibles à l'écran, donc une erreur « introuvable »
+    sur ce qui ressemble trait pour trait au bon fichier.
+    """
+    fichier = ecrire(tmp_path / "libelles_mini.json", {"A1": "Libellé officiel de A1."})
+    monkeypatch.setenv(VARIABLE_LIBELLES, f"  {fichier}\n")
+
+    assert depuis_l_environnement().pour("A1") == "Libellé officiel de A1."
+
+
+def test_du_lancement_a_l_affichage_les_formulations_officielles_apparaissent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Les deux moitiés du critère, jointes : désigné au lancement, vu à l'affichage.
+
+    Prises séparément, « la variable est lue » et « les libellés habillent la Fiche » ne
+    prouvent rien de ce que le ticket demande. C'est leur composition qui le prouve, et
+    c'est exactement ce qu'un point d'entrée aura à écrire le jour où il en existera un.
+    """
+    monkeypatch.setenv(
+        VARIABLE_LIBELLES,
+        str(ecrire(tmp_path / "libelles_mini.json", {"A1": "Formulation officielle de A1."})),
+    )
+    registre = registre_module_a_reduit()
+    fiche = Fiche(
+        verdicts=[
+            VerdictItem(identifiant=ident, sollicite=False, renseigne=False, empans=[])
+            for ident in registre.identifiants()
+        ]
+    )
+
+    affichage = decrire_fiche(fiche, registre, depuis_l_environnement())
+
+    assert "Formulation officielle de A1." in affichage
+    # Les entrées non couvertes par le fichier gardent leur construct reconstruit.
+    assert "Insomnie ou hypersomnie" in affichage

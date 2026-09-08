@@ -33,14 +33,22 @@ Le texte du MINI n'est pas dans ce dépôt et n'y sera pas ([ADR-0002](./docs/ad
 
 Un opérateur disposant d'une licence peut déposer son propre fichier de libellés et le charger à l'exécution : `minerva.libelles.charger` lit un objet JSON plat — identifiant d'entrée vers formulation officielle — et `minerva.affichage.decrire_fiche` s'en sert pour habiller les verdicts. Sans ce fichier, l'affichage se rabat sur le construct reconstruit et la chaîne rend exactement les mêmes chiffres.
 
-Le fichier se désigne au lancement par la variable d'environnement `MINERVA_LIBELLES`, que `minerva.libelles.depuis_l_environnement` lit une fois pour toutes :
+Le fichier se désigne au lancement par la variable d'environnement `MINERVA_LIBELLES`, que `minerva.libelles.depuis_l_environnement` lit à chaque appel :
 
 ```sh
-MINERVA_LIBELLES=libelles_mini_7.0.2_fr.json  # désigné : chargé, ou erreur s'il manque
-                                              # non posée : la chaîne tourne sans libellés
+export MINERVA_LIBELLES=libelles_mini_7.0.2_fr.json
 ```
 
-Variable non posée, aucune licence, la chaîne tourne : c'est le mode nominal. Variable posée mais vide ou pointant sur un fichier absent, en revanche, est une erreur et non un repli silencieux — sans quoi un opérateur croirait lire les formulations officielles et lirait des constructs reconstruits.
+```python
+from minerva.affichage import decrire_fiche
+from minerva.libelles import depuis_l_environnement
+
+print(decrire_fiche(fiche, registre, depuis_l_environnement()))
+```
+
+Variable non posée, aucune licence, la chaîne tourne : c'est le mode nominal. Variable posée mais vide, ou désignant un fichier absent, est en revanche une erreur et non un repli silencieux — sans quoi un opérateur croirait lire les formulations officielles et lirait des constructs reconstruits.
+
+Le dépôt n'a pas encore d'exécutable qui compose ces deux lignes ; c'est le seul reliquat connu de cette fonctionnalité.
 
 **Nommez ce fichier `libelles_mini*.json`** — par exemple `libelles_mini_7.0.2_fr.json`. C'est le motif que `.gitignore` connaît, et le seul qui garantisse que le texte sous copyright ne parte pas dans un commit. Un fichier nommé autrement serait suivi par git, ce qui est précisément ce qu'ADR-0002 existe pour empêcher.
 
