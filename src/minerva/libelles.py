@@ -11,9 +11,10 @@ importé par `rendu`, `detection` ni `corpus`.
 """
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
 class LibellesIllisibles(ValueError):
@@ -33,9 +34,16 @@ class Libelles(BaseModel):
     jamais comme une erreur.
     """
 
-    model_config = ConfigDict(frozen=True)
+    par_identifiant: Mapping[str, str] = {}
+    """La table, annoncée en `Mapping` : sans `__setitem__`, le typage refuse d'y écrire.
 
-    par_identifiant: dict[str, str] = {}
+    Pas de `frozen` sur ce modèle, contrairement à `IdentiteModele` ou `Panel` : ceux-là
+    portent des valeurs et des tuples, là où une table de libellés reste un dictionnaire.
+    Un `frozen` par-dessus ne gèlerait que la réaffectation du champ, laisserait passer
+    la mutation du dictionnaire lui-même, et prétendrait de surcroît que le modèle est
+    hachable — ce qui lèverait à la première tentative. La promesse est donc portée là où
+    elle se vérifie, au typage, plutôt qu'affichée là où elle ne tient pas.
+    """
 
     @classmethod
     def absentes(cls) -> "Libelles":

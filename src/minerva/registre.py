@@ -148,15 +148,19 @@ class RegistreDItems(BaseModel):
     def items_du_module(self, module: str) -> list[Item]:
         return [item for item in self.items if item.module == module]
 
-    def identifiants(self) -> list[str]:
+    def entrees(self) -> list[EntreeDuRegistre]:
         """Toutes les entrées du Registre — Items et Qualificatifs — dans l'ordre.
 
         C'est la forme que suit une Fiche : un Qualificatif y porte son verdict au même
-        titre qu'un Item.
+        titre qu'un Item. Rendre les entrées et non leurs seuls identifiants évite à
+        l'appelant qui a besoin du construct de rechercher chaque entrée à la main, ce
+        qui redonnerait ici un parcours déjà écrit trois fois.
         """
-        return [item.identifiant for item in self.items] + [
-            qualificatif.identifiant for qualificatif in self.qualificatifs
-        ]
+        return [*self.items, *self.qualificatifs]
+
+    def identifiants(self) -> list[str]:
+        """Les identifiants de toutes les entrées, dans le même ordre."""
+        return [entree.identifiant for entree in self.entrees()]
 
     def qualificatif_du_module(self, module: str) -> Qualificatif | None:
         return next((q for q in self.qualificatifs if q.module == module), None)

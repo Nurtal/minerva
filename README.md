@@ -33,6 +33,8 @@ Le texte du MINI n'est pas dans ce dépôt et n'y sera pas ([ADR-0002](./docs/ad
 
 Un opérateur disposant d'une licence peut déposer son propre fichier de libellés et le charger à l'exécution : `minerva.libelles.charger` lit un objet JSON plat — identifiant d'entrée vers formulation officielle — et `minerva.affichage.decrire_fiche` s'en sert pour habiller les verdicts. Sans ce fichier, l'affichage se rabat sur le construct reconstruit et la chaîne rend exactement les mêmes chiffres.
 
+**Nommez ce fichier `libelles_mini*.json`** — par exemple `libelles_mini_7.0.2_fr.json`. C'est le motif que `.gitignore` connaît, et le seul qui garantisse que le texte sous copyright ne parte pas dans un commit. Un fichier nommé autrement serait suivi par git, ce qui est précisément ce qu'ADR-0002 existe pour empêcher.
+
 Ces libellés ne servent qu'à l'affichage et n'atteignent jamais le modèle : s'ils entraient dans un prompt, les chiffres du dépôt dépendraient d'un fichier que le dépôt n'a pas le droit de distribuer, et deux opérateurs cesseraient de mesurer la même chose. Le fichier n'est pas versionné.
 
 **Conséquence à lire avant tout chiffre produit par ce dépôt** : MINERVA mesure la couverture d'un registre reconstruit aligné sur la structure du MINI, et non la couverture du MINI. Aucun expert n'a validé cette reconstruction dans le périmètre du projet.

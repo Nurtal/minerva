@@ -11,42 +11,48 @@ opérateurs cesseraient de mesurer la même chose.
 une consigne.
 """
 
+from typing import assert_never
+
 from minerva.domaine import Fiche, Propriete
 from minerva.libelles import Libelles
-from minerva.registre import RegistreDItems
+from minerva.registre import EntreeDuRegistre, RegistreDItems
 
 _RETRAIT = "     "
-
-_TERME = {
-    Propriete.SOLLICITE: "sollicité",
-    Propriete.RENSEIGNE: "renseigné",
-}
-"""Les termes de CONTEXT.md, en regard des valeurs de sérialisation.
-
-Les valeurs d'énumération voyagent dans du JSON et des prompts, d'où l'absence
-d'accents ; un humain, lui, lit le glossaire. La table est totale sur `Propriete`, donc
-une propriété nouvelle ne peut pas s'afficher sous son nom de transport sans qu'on ait
-choisi comment la dire."""
 
 _NON_APPLICABLE = "non-applicable"
 _INTACTE = "ni sollicité ni renseigné"
 """L'oubli, dit en toutes lettres : c'est un résultat, pas un blanc dans la page."""
 
 
-def _enonce(identifiant: str, registre: RegistreDItems, libelles: Libelles) -> str:
+def _terme(propriete: Propriete) -> str:
+    """Le terme de CONTEXT.md en regard de la valeur de sérialisation.
+
+    Les valeurs d'énumération voyagent dans du JSON et des prompts, d'où l'absence
+    d'accents ; un humain, lui, lit le glossaire. Le `match` est exhaustif et clos par
+    `assert_never` : une propriété nouvelle fait échouer le typage plutôt que de
+    s'afficher sous son nom de transport, ce qu'une table indexée n'aurait signalé qu'à
+    l'exécution, et seulement sur le cas rencontré.
+    """
+    match propriete:
+        case Propriete.SOLLICITE:
+            return "sollicité"
+        case Propriete.RENSEIGNE:
+            return "renseigné"
+    assert_never(propriete)
+
+
+def _formulation_de(entree: EntreeDuRegistre, libelles: Libelles) -> str:
     """Ce qu'on écrit sous l'identifiant : le libellé officiel, sinon le construct.
 
-    Le repli est le construct reconstruit et non l'identifiant nu : c'est lui que MINERVA
-    mesure réellement, et il reste la description la plus honnête de l'entrée quand
-    personne n'a de licence.
+    Le repli est le construct reconstruit : c'est lui que MINERVA mesure réellement, et
+    il reste la description la plus honnête de l'entrée quand personne n'a de licence.
+
+    Prend l'entrée et non son identifiant : le Registre sait déjà rendre ses entrées, et
+    les rechercher ici aurait redonné un parcours qu'il écrit trois fois — avec, en prime,
+    une branche « entrée introuvable » que rien ne peut atteindre.
     """
-    officiel = libelles.pour(identifiant)
-    if officiel is not None:
-        return f"« {officiel} »"
-    for entree in (*registre.items, *registre.qualificatifs):
-        if entree.identifiant == identifiant:
-            return entree.construct_sonde
-    return identifiant
+    officiel = libelles.pour(entree.identifiant)
+    return f"« {officiel} »" if officiel is not None else entree.construct_sonde
 
 
 def decrire_fiche(fiche: Fiche, registre: RegistreDItems, libelles: Libelles) -> str:
@@ -60,10 +66,11 @@ def decrire_fiche(fiche: Fiche, registre: RegistreDItems, libelles: Libelles) ->
     verdicts = fiche.par_identifiant()
     lignes: list[str] = []
 
-    for identifiant in registre.identifiants():
+    for entree in registre.entrees():
+        identifiant = entree.identifiant
         verdict = verdicts.get(identifiant)
         etats = [
-            _TERME[propriete]
+            _terme(propriete)
             for propriete in Propriete
             if verdict is not None and verdict.porte(propriete)
         ]
@@ -71,7 +78,7 @@ def decrire_fiche(fiche: Fiche, registre: RegistreDItems, libelles: Libelles) ->
             etats.append(_NON_APPLICABLE)
 
         lignes.append(f"{identifiant} — {' · '.join(etats) or _INTACTE}")
-        lignes.append(f"{_RETRAIT}{_enonce(identifiant, registre, libelles)}")
+        lignes.append(f"{_RETRAIT}{_formulation_de(entree, libelles)}")
         for empan in verdict.empans if verdict is not None else []:
             locuteur = empan.role.locuteur.value
             lignes.append(f"{_RETRAIT}[{empan.indice_tour}] {locuteur} : « {empan.passage} »")

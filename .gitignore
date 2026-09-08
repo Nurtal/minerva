@@ -9,8 +9,12 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Instrument sous licence — voir ADR-0002 : le texte du MINI n'entre jamais
-# dans le dépôt. Un opérateur licencié dépose ses libellés ici, hors versionnement.
+# Instrument sous licence — voir ADR-0002 : le texte du MINI n'entre jamais dans le
+# dépôt. Un opérateur licencié dépose ses libellés ici, hors versionnement.
+#
+# Le README documente `libelles_mini*.json` comme la convention à suivre ; les deux
+# autres motifs sont des filets. Un motif de trop ne coûte rien, un motif manquant
+# coûte un commit de texte sous copyright.
 libelles_mini*
 *.mini.json
 mini.json
