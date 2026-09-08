@@ -11,13 +11,16 @@ confondus. Générer Module par Module puis recoller donnerait des indices de To
 et des Empans pointant sur les Tours d'un autre Module.
 """
 
+from collections.abc import Sequence
 from enum import StrEnum
 
 from pydantic import BaseModel
 
 from minerva.domaine import (
+    CorpusSynthetique,
     Entretien,
     Fiche,
+    Panel,
     Propriete,
     Retranscription,
     Style,
@@ -34,6 +37,10 @@ class SpecificationIncoherente(ValueError):
 
 class GenerationInfidele(RuntimeError):
     """L'Entretien produit ne réalise pas la Spécification qui l'a commandé."""
+
+
+class CorpusSansReferencePropre(ValueError):
+    """Aucun générateur n'est étranger aux familles du panel — le Corpus n'a pas de neutre."""
 
 
 class NaturePhenomene(StrEnum):
@@ -351,4 +358,63 @@ def generer(
         retranscription=produit.retranscription,
         reference=_verifier(produit, specification, registre),
         style=specification.style,
+        generateur=modele.identite,
+    )
+
+
+def _verifier_reference_propre(
+    specifications: Sequence[Specification],
+    generateurs: Sequence[PortModele],
+    panel: Panel,
+) -> None:
+    """Le Corpus doit porter une partition qu'aucune famille du panel n'a écrite.
+
+    Le contrôle tombe avant le premier appel de modèle, et non après : un Corpus sans
+    référence propre est à refaire de bout en bout, et l'apprendre une fois les
+    Entretiens écrits n'en sauverait aucun.
+
+    Un Corpus vide est refusé au même titre : sans Spécification ou sans générateur, il
+    ne porte aucune partition, donc aucune partition neutre. Le dire ici vaut mieux que
+    de rendre un Corpus vide dont `partition_neutre` se contenterait de ne rien tirer.
+    """
+    if not specifications or not generateurs:
+        raise CorpusSansReferencePropre(
+            "un Corpus sans Spécification ou sans générateur ne porte aucune partition, "
+            "donc aucune référence propre"
+        )
+
+    familles_generatrices = {generateur.identite.famille for generateur in generateurs}
+    if familles_generatrices <= panel.familles():
+        raise CorpusSansReferencePropre(
+            f"aucun générateur étranger au panel : {', '.join(sorted(familles_generatrices))} "
+            "sont toutes des familles de détecteurs. Le Corpus n'aurait aucune référence "
+            "propre, et l'on mesurerait le biais de génération avec le biais lui-même"
+        )
+
+
+def generer_corpus(
+    specifications: Sequence[Specification],
+    registre: RegistreDItems,
+    generateurs: Sequence[PortModele],
+    panel: Panel,
+) -> CorpusSynthetique:
+    """Fait réaliser les mêmes Spécifications par chaque générateur.
+
+    Les partitions ne diffèrent alors que par qui les a écrites : mêmes commandes, mêmes
+    difficultés imposées, mêmes axes de style. C'est ce qui rend l'écart entre partitions
+    attribuable au générateur plutôt qu'au tirage, et donc lisible comme un biais de
+    génération.
+
+    Le panel des détecteurs est exigé ici, et pas seulement au moment d'évaluer : la
+    partition neutre est une propriété du Corpus, et l'ADR-0004 la veut posée dès la
+    génération. Un générateur du panel reste bienvenu — sa partition sert aux autres
+    détecteurs — mais il en faut au moins un qui soit étranger à toutes ces familles.
+    """
+    _verifier_reference_propre(specifications, generateurs, panel)
+    return CorpusSynthetique(
+        entretiens=[
+            generer(specification, registre, generateur)
+            for generateur in generateurs
+            for specification in specifications
+        ]
     )

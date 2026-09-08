@@ -7,7 +7,7 @@ en compare deux. C'est la contrainte de forme du projet.
 
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 Polarite = bool | None
 """Vrai, faux, ou indéterminé — la réponse à un Item filtre du graphe de saut."""
@@ -173,6 +173,93 @@ class Style(BaseModel):
     directivite: Directivite = Directivite.SEMI_DIRECTIF
 
 
+class IdentiteModele(BaseModel):
+    """Qui a produit quelque chose : un modèle, et la famille dont il relève.
+
+    La famille est plus grossière que le nom, délibérément. Un détecteur ne doit jamais
+    être évalué sur ce qu'il a lui-même écrit ; mais son score contre un frère de sa
+    propre famille reste intéressant, et son écart avec le score contre une autre famille
+    est précisément ce qui mesure le biais de génération (ADR-0004).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    nom: str
+    famille: str
+
+    @field_validator("nom", "famille", mode="after")
+    @classmethod
+    def _normaliser(cls, valeur: str) -> str:
+        """Casse et espaces ne doivent pas décider d'une contamination.
+
+        Une valeur qui ne survit pas à la normalisation est refusée, et pas conservée
+        vide : les deux gardes de la règle ne tiennent que par ces chaînes. Un nom vide
+        est préfixe de tous les autres, donc `est_le_meme_que` vaut alors vrai contre
+        n'importe qui ; une famille vide range dans une même partition des modèles
+        étrangers l'un à l'autre.
+        """
+        normalisee = valeur.strip().casefold()
+        if not normalisee:
+            raise ValueError(
+                "une identité de modèle ne peut être ni anonyme ni sans famille : la règle "
+                "de non-contamination se lit entièrement sur ces deux chaînes"
+            )
+        return normalisee
+
+    def est_le_meme_que(self, autre: "IdentiteModele") -> bool:
+        """Deux identités désignent-elles le même modèle ?
+
+        Un nom préfixe de l'autre suffit à le croire — « claude-opus-5 » et
+        « claude-opus-5-20250101 » sont le même modèle épinglé différemment. La garde de
+        contamination se trompe du côté sûr : deux modèles réellement distincts dont les
+        noms se recouvrent doivent être désambiguïsés explicitement.
+        """
+        return self.nom.startswith(autre.nom) or autre.nom.startswith(self.nom)
+
+
+class Panel(BaseModel):
+    """L'ensemble des détecteurs du benchmark, et rien de moins.
+
+    Type à part entière plutôt qu'une liste d'identités, parce que deux lectures de la
+    règle en dépendent et qu'elles se lisent toutes deux sur les familles : ce qu'une
+    partition neutre doit éviter, et ce qu'un détecteur doit trouver pour se savoir
+    déclaré. Passer une liste laissait chaque appelant recalculer l'ensemble des familles
+    — trois fois dans trois modules — et rien ne disait qu'ils s'accordaient.
+
+    « Et rien de moins » est la contrainte utile : un panel amputé d'un détecteur ferait
+    passer la famille de celui-ci pour une référence propre aux yeux de tous les autres.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    detecteurs: tuple[IdentiteModele, ...]
+
+    @model_validator(mode="after")
+    def _non_vide(self) -> "Panel":
+        if not self.detecteurs:
+            raise ValueError(
+                "un panel vide ne déclare aucun détecteur : toute partition y passerait "
+                "pour neutre, et la référence propre ne voudrait plus rien dire"
+            )
+        return self
+
+    def familles(self) -> frozenset[str]:
+        """Les familles représentées au panel — la seule grandeur que la règle consulte."""
+        return frozenset(detecteur.famille for detecteur in self.detecteurs)
+
+    def couvre(self, identite: "IdentiteModele") -> bool:
+        """La famille de cette identité est-elle représentée au panel ?
+
+        Au niveau de la famille, et non du nom : c'est la famille qui décide de tout le
+        classement intra / croisé / neutre, donc c'est d'elle seule que dépend la
+        justesse du classement. Une identité épinglée à une version est ainsi couverte
+        par le panel qui nomme le modèle court, sans qu'on ait à comparer des noms — et
+        surtout, un modèle réellement absent ne se faufile pas parce que son nom en
+        recouvre un autre.
+        """
+        return identite.famille in self.familles()
+
+
 class AxeDeStyle(StrEnum):
     """Les axes selon lesquels on ventile les chiffres.
 
@@ -204,3 +291,71 @@ class Entretien(BaseModel):
     retranscription: Retranscription
     reference: Fiche
     style: Style = Style()
+    generateur: IdentiteModele | None = None
+    """Le modèle qui a écrit cet Entretien, apposé à la génération.
+
+    `None` pour un Entretien qui n'est pas sorti de `generer` — sa provenance est alors
+    inconnue, et il n'a pas sa place dans un Corpus soumis à la règle de non-contamination.
+    """
+
+
+class CorpusSynthetique(BaseModel):
+    """Les Entretiens générés, chacun sachant de quel modèle il vient.
+
+    Le partitionnement n'est pas une vue posée sur le Corpus après coup : c'est sa
+    structure. La règle de non-contamination ne se rattrape pas au moment de l'analyse,
+    donc un Entretien de provenance inconnue n'y entre pas.
+    """
+
+    entretiens: list[Entretien]
+
+    @model_validator(mode="after")
+    def _provenance_connue(self) -> "CorpusSynthetique":
+        orphelins = [
+            indice
+            for indice, entretien in enumerate(self.entretiens)
+            if entretien.generateur is None
+        ]
+        if orphelins:
+            raise ValueError(
+                f"entretiens sans générateur aux positions {orphelins} : on ne pourrait "
+                "pas dire s'ils contaminent un détecteur, et la règle reposerait sur la "
+                "vigilance du lecteur"
+            )
+        return self
+
+    def partitions(self) -> dict[str, list[Entretien]]:
+        """Les Entretiens groupés par nom exact de générateur.
+
+        Le nom exact, et non l'identité au sens de `est_le_meme_que` : deux versions
+        épinglées d'un même modèle ont écrit des textes différents, et les fondre
+        effacerait précisément ce qu'une partition sert à isoler. C'est une vue de
+        lecture, pas la garde de contamination — celle-ci vit dans `evaluation`, où
+        confondre les deux versions est au contraire la prudence à avoir.
+
+        Le `is not None` n'écarte rien : `_provenance_connue` l'a déjà garanti. Il est là
+        pour que le typage le sache aussi.
+        """
+        par_generateur: dict[str, list[Entretien]] = {}
+        for entretien in self.entretiens:
+            if entretien.generateur is not None:
+                par_generateur.setdefault(entretien.generateur.nom, []).append(entretien)
+        return par_generateur
+
+    def partition_neutre(self, panel: Panel) -> list[Entretien]:
+        """Les Entretiens qu'aucun détecteur ni aucun de ses parents n'a écrits.
+
+        La référence propre s'entend au niveau de la **famille**, pas du nom : un modèle
+        absent du panel mais frère d'un détecteur partage ses régularités, et le prendre
+        pour référence propre reviendrait à mesurer le biais avec le biais.
+
+        Vide quand le Corpus n'a aucune partition étrangère au panel — mieux vaut le lire
+        dans le résultat que le supposer. `generer_corpus` refuse d'en produire un tel,
+        mais un Corpus assemblé à la main n'a pas eu à passer par là.
+        """
+        familles = panel.familles()
+        return [
+            entretien
+            for entretien in self.entretiens
+            if entretien.generateur is not None and entretien.generateur.famille not in familles
+        ]

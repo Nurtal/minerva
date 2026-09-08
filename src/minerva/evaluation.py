@@ -8,7 +8,15 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from minerva.domaine import AxeDeStyle, Fiche, Propriete, Style
+from minerva.domaine import (
+    AxeDeStyle,
+    Entretien,
+    Fiche,
+    IdentiteModele,
+    Panel,
+    Propriete,
+    Style,
+)
 from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
@@ -191,6 +199,45 @@ def _ancrage(paires: Sequence[PaireFiches]) -> float:
     return ancres / total if total else 0.0
 
 
+class Contamination(RuntimeError):
+    """On a voulu évaluer un modèle sur des Entretiens qu'il a lui-même écrits."""
+
+
+class PanelIncomplet(ValueError):
+    """Le panel ne couvre pas le détecteur qu'on évalue — il n'est donc pas l'ensemble
+    des détecteurs, et la partition neutre calculée à partir de lui n'en est pas une."""
+
+
+@dataclass(frozen=True)
+class MesuresParProvenance:
+    """Les chiffres d'un détecteur selon la parenté de qui a écrit ce qu'il lit.
+
+    L'écart entre intra-famille et croisé est le résultat, pas un sous-produit : il mesure
+    combien le détecteur doit à la parenté de son générateur plutôt qu'à son exactitude.
+    La partition neutre est à part, et c'est la seule des trois qui soit une référence
+    propre (ADR-0004).
+    """
+
+    intra_famille: Mesures | None
+    """Contre des Entretiens écrits par un autre modèle de la même famille que le détecteur."""
+    croise: Mesures | None
+    """Contre des Entretiens écrits par une autre famille du panel."""
+    neutre: Mesures | None
+    """Contre des Entretiens écrits hors de toute famille du panel — la référence propre."""
+
+    @property
+    def ecart_rappel_renseigne(self) -> float | None:
+        """Rappel intra moins rappel croisé, sur la métrique de tête.
+
+        `None` s'il manque un côté : un écart incalculable vaut mieux qu'un zéro, qui se
+        lirait comme « aucune parenté ne joue ». Dérivé plutôt que stocké, pour qu'il ne
+        puisse pas contredire les mesures dont il sort.
+        """
+        if self.intra_famille is None or self.croise is None:
+            return None
+        return self.intra_famille.renseigne.rappel - self.croise.renseigne.rappel
+
+
 @dataclass(frozen=True)
 class EntretienEvalue:
     """Une Fiche de référence, la Fiche prédite, et le Style sous lequel l'Entretien fut produit.
@@ -202,20 +249,133 @@ class EntretienEvalue:
     style: Style
     reference: Fiche
     prediction: Fiche
+    generateur: IdentiteModele
+    """Qui a écrit l'Entretien — ce qui décide de quel côté de l'écart il tombe.
+
+    Exigé, sans valeur par défaut : un Entretien de provenance inconnue rendrait la règle
+    de non-contamination dépendante de la vigilance de l'appelant, ce qu'elle existe
+    précisément pour éviter (ADR-0004).
+    """
+
+    @classmethod
+    def depuis(cls, entretien: Entretien, prediction: Fiche) -> "EntretienEvalue":
+        """Apparie un Entretien généré à la Fiche prédite pour lui.
+
+        Le Style et le générateur suivent l'Entretien plutôt que d'être recopiés à la
+        main : un ré-appariement manuel est une erreur silencieuse et irrattrapable. Une
+        provenance inconnue est refusée ici, au moment de l'appariement, et non perdue
+        plus loin au moment de l'analyse.
+        """
+        if entretien.generateur is None:
+            raise Contamination(
+                "provenance inconnue : cet Entretien n'est pas sorti de `generer`, donc "
+                "rien ne permet de dire s'il contamine le détecteur qui va le lire"
+            )
+        return cls(
+            style=entretien.style,
+            reference=entretien.reference,
+            prediction=prediction,
+            generateur=entretien.generateur,
+        )
+
+
+def _refuser_contamination(
+    detecteur: IdentiteModele, entretiens: Sequence[EntretienEvalue]
+) -> None:
+    """Refuse les Entretiens que le détecteur a lui-même écrits.
+
+    Partagée par toutes les entrées publiques qui évaluent un détecteur nommé : la règle
+    ne doit pas dépendre de la porte par laquelle on entre. L'appartenance se lit avec
+    `est_le_meme_que`, qui se trompe du côté sûr — un nom qui en recouvre un autre est
+    tenu pour le même modèle, quitte à refuser une évaluation qui aurait été licite.
+    """
+    contaminants = sorted(
+        {
+            entretien.generateur.nom
+            for entretien in entretiens
+            if entretien.generateur.est_le_meme_que(detecteur)
+        }
+    )
+    if contaminants:
+        raise Contamination(
+            f"{detecteur.nom} ne peut pas être évalué sur des Entretiens écrits par "
+            f"{', '.join(contaminants)} — c'est lui-même"
+        )
+
+
+def evaluer_par_provenance(
+    detecteur: IdentiteModele,
+    panel: Panel,
+    entretiens: Sequence[EntretienEvalue],
+    registre: RegistreDItems,
+) -> MesuresParProvenance:
+    """Ventile les chiffres d'un détecteur selon la parenté de qui a écrit ce qu'il lit.
+
+    Trois provenances, et non deux : un générateur de la famille du détecteur, un
+    générateur d'une autre famille du panel, et un générateur étranger à toute famille du
+    panel — le seul qui soit une référence propre.
+
+    Refuse les Entretiens que le détecteur a lui-même écrits, y compris sous un nom qui
+    n'en diffère que par la casse ou par une version épinglée : là, il retrouverait ses
+    propres régularités et l'on mesurerait une auto-cohérence en croyant mesurer une
+    exactitude.
+
+    Refuse aussi un panel qui ne couvre pas la famille du détecteur. C'est la partition
+    neutre qui en dépend : elle se lit comme « écrite par aucune famille du panel », ce qui
+    ne vaut que si le panel est bien l'ensemble des détecteurs. Un détecteur oublié y ferait
+    entrer sa propre famille, et la référence propre serait mesurée avec ce qu'elle sert à
+    mesurer.
+    """
+    _refuser_contamination(detecteur, entretiens)
+
+    if not panel.couvre(detecteur):
+        raise PanelIncomplet(
+            f"{detecteur.nom} (famille {detecteur.famille}) n'est couvert par aucun "
+            f"détecteur du panel ({', '.join(sorted(panel.familles()))}) : le panel est "
+            "l'ensemble des détecteurs, et un détecteur manquant fait passer sa famille "
+            "pour une référence propre aux yeux de tous les autres"
+        )
+
+    familles_du_panel = panel.familles()
+    intra: list[PaireFiches] = []
+    croise: list[PaireFiches] = []
+    neutre: list[PaireFiches] = []
+    for entretien in entretiens:
+        paire = (entretien.reference, entretien.prediction)
+        famille = entretien.generateur.famille
+        if famille == detecteur.famille:
+            intra.append(paire)
+        elif famille in familles_du_panel:
+            croise.append(paire)
+        else:
+            neutre.append(paire)
+
+    return MesuresParProvenance(
+        intra_famille=evaluer(intra, registre) if intra else None,
+        croise=evaluer(croise, registre) if croise else None,
+        neutre=evaluer(neutre, registre) if neutre else None,
+    )
 
 
 def evaluer_par_axe(
-    entretiens: Sequence[EntretienEvalue], registre: RegistreDItems
+    detecteur: IdentiteModele, entretiens: Sequence[EntretienEvalue], registre: RegistreDItems
 ) -> dict[AxeDeStyle, dict[str, Mesures]]:
     """Les mêmes chiffres, ventilés axe par axe puis niveau par niveau.
 
     Un axe de style contrôlé ne sert à rien si les chiffres ne s'y rapportent pas : c'est
     la ventilation qui rend une baisse interprétable.
 
+    Exige le détecteur et refuse ce qu'il a écrit, comme `evaluer_par_provenance` : la
+    règle de non-contamination ne peut pas dépendre de la porte par laquelle on entre.
+    Ventiler par style plutôt que par provenance ne rend pas l'auto-évaluation moins
+    fausse — elle la répartirait simplement sur trois axes.
+
     Attention en comparant deux niveaux : chacun a son propre dénominateur, puisque les
     entrées sans aucun positif y sont écartées séparément (ADR-0005). Deux niveaux dont
     les `items_ecartes` diffèrent ne sont pas directement comparables.
     """
+    _refuser_contamination(detecteur, entretiens)
+
     par_axe: dict[AxeDeStyle, dict[str, Mesures]] = {}
     for axe in AxeDeStyle:
         groupes: dict[str, list[PaireFiches]] = {}

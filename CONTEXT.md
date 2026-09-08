@@ -62,6 +62,18 @@ _Éviter_ : référentiel, base d'items, grille
 Le tirage qui décrit un entretien avant qu'il n'existe : pour chaque item, l'état visé, plus les cas difficiles à réaliser. Fait office de vérité terrain, vraie par construction.
 _Éviter_ : scénario, cas de test, gold, annotation
 
+**Partition** :
+La part du corpus écrite par un même modèle générateur. Découpage structurel, jamais une vue posée après coup : un entretien de provenance inconnue n'entre pas au corpus.
+_Éviter_ : lot, groupe, split, sous-corpus
+
+**Panel** :
+L'ensemble des modèles évalués en détection, connu avant que le corpus soit écrit. C'est de lui que la partition neutre doit être étrangère ; amputé d'un détecteur, il fait passer la famille de celui-ci pour une référence propre.
+_Éviter_ : ensemble, liste, pool, benchmark
+
+**Contamination** :
+Le fait d'évaluer un modèle sur la partition qu'il a lui-même écrite, où il retrouve ses propres régularités. On y mesure une auto-cohérence en croyant mesurer une exactitude.
+_Éviter_ : fuite, biais, leakage, triche
+
 **Phénomène adverse** :
 Une difficulté que la spécification impose de réaliser dans l'entretien, rattachée à ce qu'elle vise — question laissée sans réponse, apport spontané, faux ami, négation, module légitimement sauté. Quatre des cinq impliquent un état visé, et le déclarer sans le commander est une spécification qui se contredit.
 _Éviter_ : cas limite, edge case, piège, cas dur

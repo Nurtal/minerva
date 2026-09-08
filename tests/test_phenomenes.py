@@ -24,6 +24,7 @@ from minerva.domaine import (
     EmpanDePreuve,
     Entretien,
     Fiche,
+    IdentiteModele,
     Locuteur,
     Loquacite,
     Retranscription,
@@ -41,6 +42,11 @@ from tests.fabriques import item
 def registre_plat(*identifiants: str) -> RegistreDItems:
     return RegistreDItems(items=[item(ident) for ident in identifiants])
 
+
+GENERATEUR = IdentiteModele(nom="factice", famille="factice")
+DETECTEUR = IdentiteModele(nom="detecteur-de-test", famille="detecteur-de-test")
+"""Étranger au générateur : ces tests ventilent par style, pas par provenance, mais la
+garde de non-contamination s'applique quelle que soit la porte d'entrée."""
 
 TOUT_ETEINT = {
     "A1": (False, False),
@@ -236,15 +242,17 @@ def test_les_chiffres_se_ventilent_par_axe_de_style() -> None:
             style=Style(loquacite=Loquacite.LACONIQUE),
             reference=fiche(A1=(True, True)),
             prediction=rate,
+            generateur=GENERATEUR,
         ),
         EntretienEvalue(
             style=Style(loquacite=Loquacite.PROLIXE),
             reference=fiche(A1=(True, True)),
             prediction=parfait,
+            generateur=GENERATEUR,
         ),
     ]
 
-    par_axe = evaluer_par_axe(cas, registre_plat("A1"))
+    par_axe = evaluer_par_axe(DETECTEUR, cas, registre_plat("A1"))
 
     assert par_axe[AxeDeStyle.LOQUACITE]["laconique"].renseigne.rappel == 0.0
     assert par_axe[AxeDeStyle.LOQUACITE]["prolixe"].renseigne.rappel == 1.0
@@ -258,15 +266,17 @@ def test_un_axe_sans_variation_rend_un_seul_groupe() -> None:
             style=Style(loquacite=Loquacite.LACONIQUE),
             reference=fiche(A1=(True, True)),
             prediction=fiche(A1=(True, True)),
+            generateur=GENERATEUR,
         ),
         EntretienEvalue(
             style=Style(loquacite=Loquacite.PROLIXE),
             reference=fiche(A1=(True, True)),
             prediction=fiche(A1=(True, True)),
+            generateur=GENERATEUR,
         ),
     ]
 
-    par_axe = evaluer_par_axe(cas, registre_plat("A1"))
+    par_axe = evaluer_par_axe(DETECTEUR, cas, registre_plat("A1"))
 
     assert set(par_axe[AxeDeStyle.DIRECTIVITE]) == {"semi_directif"}
 
