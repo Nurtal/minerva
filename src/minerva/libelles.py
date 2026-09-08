@@ -11,6 +11,7 @@ importé par `rendu`, `detection` ni `corpus`.
 """
 
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -103,3 +104,36 @@ def charger(chemin: Path) -> Libelles:
         )
 
     return Libelles(par_identifiant=contenu)
+
+
+VARIABLE_LIBELLES = "MINERVA_LIBELLES"
+"""La variable d'environnement où un opérateur licencié désigne son fichier.
+
+Le démarrage d'un processus, et non une interface : le dépôt n'en a aucune, et #1 les
+met hors périmètre. C'est le mécanisme le plus léger par lequel « fourni au lancement »
+puisse être autre chose qu'une phrase du README.
+"""
+
+
+def depuis_l_environnement() -> Libelles:
+    """Les libellés désignés au lancement, s'il y en a.
+
+    Variable absente : personne n'a de licence, et c'est le mode nominal du dépôt — on
+    rend `Libelles.absentes()` sans rien dire.
+
+    Variable posée mais vide : ce n'est pas la même chose, et les confondre coûterait
+    cher. `export MINERVA_LIBELLES=$CHEMIN` avec `$CHEMIN` non défini laisse une variable
+    posée et vide ; l'opérateur croit avoir désigné ses libellés et lirait des replis
+    sans qu'aucun signe ne l'en avertisse. C'est le même refus que dans `charger`, appuyé
+    plus fort : un chemin posé dans l'environnement se relit rarement.
+    """
+    designe = os.environ.get(VARIABLE_LIBELLES)
+    if designe is None:
+        return Libelles.absentes()
+    if not designe.strip():
+        raise LibellesIllisibles(
+            f"{VARIABLE_LIBELLES} est posée mais vide : désigner un fichier de libellés "
+            "et n'en nommer aucun laisserait lire des replis à qui croit lire les "
+            f"formulations officielles. Nommez le fichier, ou retirez {VARIABLE_LIBELLES}"
+        )
+    return charger(Path(designe))

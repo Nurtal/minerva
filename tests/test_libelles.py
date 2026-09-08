@@ -24,7 +24,13 @@ from minerva.domaine import (
     VerdictItem,
 )
 from minerva.evaluation import Mesures, evaluer
-from minerva.libelles import Libelles, LibellesIllisibles, charger
+from minerva.libelles import (
+    VARIABLE_LIBELLES,
+    Libelles,
+    LibellesIllisibles,
+    charger,
+    depuis_l_environnement,
+)
 from minerva.modele import AdaptateurFactice
 from minerva.registre import registre_module_a_reduit
 
@@ -212,3 +218,57 @@ def test_aucun_module_de_la_chaine_n_importe_les_libelles() -> None:
 
         assert "minerva.libelles" not in importes, f"{nom} importe les libellés"
         assert "minerva.affichage" not in importes, f"{nom} importe l'affichage"
+
+
+def test_sans_variable_d_environnement_on_tourne_sans_libelles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Le mode nominal, obtenu sans que personne ait à le demander.
+
+    C'est l'état de quiconque n'a pas de licence : la variable n'est pas posée, et la
+    chaîne doit démarrer comme si de rien n'était.
+    """
+    monkeypatch.delenv(VARIABLE_LIBELLES, raising=False)
+
+    assert depuis_l_environnement() == Libelles.absentes()
+
+
+def test_le_fichier_designe_au_lancement_est_charge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ce que gagne l'opérateur licencié : poser une variable, et rien d'autre à câbler."""
+    fichier = ecrire(tmp_path / "libelles_mini_7.0.2_fr.json", {"A1": "Libellé officiel de A1."})
+    monkeypatch.setenv(VARIABLE_LIBELLES, str(fichier))
+
+    assert depuis_l_environnement().pour("A1") == "Libellé officiel de A1."
+
+
+def test_une_variable_qui_designe_un_fichier_absent_se_plaint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Poser la variable est une intention ; l'ignorer en silence la trahirait.
+
+    C'est la même règle que pour `charger`, et elle vaut d'autant plus ici : un chemin
+    posé dans l'environnement se relit rarement, et le repli passerait inaperçu bien plus
+    longtemps qu'un appel explicite.
+    """
+    monkeypatch.setenv(VARIABLE_LIBELLES, str(tmp_path / "jamais-depose.mini.json"))
+
+    with pytest.raises(LibellesIllisibles, match="introuvable"):
+        depuis_l_environnement()
+
+
+def test_une_variable_posee_mais_vide_est_une_intention_trahie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`export MINERVA_LIBELLES=$CHEMIN` avec `$CHEMIN` non défini : posée, et vide.
+
+    Distinguer ce cas de la variable absente est tout l'intérêt : ne rien dire ferait
+    lire des replis à qui a cru désigner ses libellés officiels. Le message doit nommer
+    la variable, faute de quoi il parle d'un chemin que l'opérateur n'a jamais écrit.
+    """
+    for vide in ("", "   "):
+        monkeypatch.setenv(VARIABLE_LIBELLES, vide)
+
+        with pytest.raises(LibellesIllisibles, match=VARIABLE_LIBELLES):
+            depuis_l_environnement()
