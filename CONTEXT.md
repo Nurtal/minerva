@@ -66,6 +66,10 @@ _Éviter_ : scénario, cas de test, gold, annotation
 La part du corpus écrite par un même modèle générateur. Découpage structurel, jamais une vue posée après coup : un entretien de provenance inconnue n'entre pas au corpus.
 _Éviter_ : lot, groupe, split, sous-corpus
 
+**Panel** :
+L'ensemble des modèles évalués en détection, connu avant que le corpus soit écrit. C'est de lui que la partition neutre doit être étrangère ; amputé d'un détecteur, il fait passer la famille de celui-ci pour une référence propre.
+_Éviter_ : ensemble, liste, pool, benchmark
+
 **Contamination** :
 Le fait d'évaluer un modèle sur la partition qu'il a lui-même écrite, où il retrouve ses propres régularités. On y mesure une auto-cohérence en croyant mesurer une exactitude.
 _Éviter_ : fuite, biais, leakage, triche

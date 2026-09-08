@@ -5,7 +5,6 @@ bout en bout : la Spécification en porte une, la détection en rend une, l'éva
 en compare deux. C'est la contrainte de forme du projet.
 """
 
-from collections.abc import Sequence
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -218,6 +217,49 @@ class IdentiteModele(BaseModel):
         return self.nom.startswith(autre.nom) or autre.nom.startswith(self.nom)
 
 
+class Panel(BaseModel):
+    """L'ensemble des détecteurs du benchmark, et rien de moins.
+
+    Type à part entière plutôt qu'une liste d'identités, parce que deux lectures de la
+    règle en dépendent et qu'elles se lisent toutes deux sur les familles : ce qu'une
+    partition neutre doit éviter, et ce qu'un détecteur doit trouver pour se savoir
+    déclaré. Passer une liste laissait chaque appelant recalculer l'ensemble des familles
+    — trois fois dans trois modules — et rien ne disait qu'ils s'accordaient.
+
+    « Et rien de moins » est la contrainte utile : un panel amputé d'un détecteur ferait
+    passer la famille de celui-ci pour une référence propre aux yeux de tous les autres.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    detecteurs: tuple[IdentiteModele, ...]
+
+    @model_validator(mode="after")
+    def _non_vide(self) -> "Panel":
+        if not self.detecteurs:
+            raise ValueError(
+                "un panel vide ne déclare aucun détecteur : toute partition y passerait "
+                "pour neutre, et la référence propre ne voudrait plus rien dire"
+            )
+        return self
+
+    def familles(self) -> frozenset[str]:
+        """Les familles représentées au panel — la seule grandeur que la règle consulte."""
+        return frozenset(detecteur.famille for detecteur in self.detecteurs)
+
+    def couvre(self, identite: "IdentiteModele") -> bool:
+        """La famille de cette identité est-elle représentée au panel ?
+
+        Au niveau de la famille, et non du nom : c'est la famille qui décide de tout le
+        classement intra / croisé / neutre, donc c'est d'elle seule que dépend la
+        justesse du classement. Une identité épinglée à une version est ainsi couverte
+        par le panel qui nomme le modèle court, sans qu'on ait à comparer des noms — et
+        surtout, un modèle réellement absent ne se faufile pas parce que son nom en
+        recouvre un autre.
+        """
+        return identite.famille in self.familles()
+
+
 class AxeDeStyle(StrEnum):
     """Les axes selon lesquels on ventile les chiffres.
 
@@ -283,14 +325,24 @@ class CorpusSynthetique(BaseModel):
         return self
 
     def partitions(self) -> dict[str, list[Entretien]]:
-        """Les Entretiens groupés par nom de générateur."""
+        """Les Entretiens groupés par nom exact de générateur.
+
+        Le nom exact, et non l'identité au sens de `est_le_meme_que` : deux versions
+        épinglées d'un même modèle ont écrit des textes différents, et les fondre
+        effacerait précisément ce qu'une partition sert à isoler. C'est une vue de
+        lecture, pas la garde de contamination — celle-ci vit dans `evaluation`, où
+        confondre les deux versions est au contraire la prudence à avoir.
+
+        Le `is not None` n'écarte rien : `_provenance_connue` l'a déjà garanti. Il est là
+        pour que le typage le sache aussi.
+        """
         par_generateur: dict[str, list[Entretien]] = {}
         for entretien in self.entretiens:
             if entretien.generateur is not None:
                 par_generateur.setdefault(entretien.generateur.nom, []).append(entretien)
         return par_generateur
 
-    def partition_neutre(self, panel: Sequence[IdentiteModele]) -> list[Entretien]:
+    def partition_neutre(self, panel: Panel) -> list[Entretien]:
         """Les Entretiens qu'aucun détecteur ni aucun de ses parents n'a écrits.
 
         La référence propre s'entend au niveau de la **famille**, pas du nom : un modèle
@@ -298,9 +350,10 @@ class CorpusSynthetique(BaseModel):
         pour référence propre reviendrait à mesurer le biais avec le biais.
 
         Vide quand le Corpus n'a aucune partition étrangère au panel — mieux vaut le lire
-        dans le résultat que le supposer.
+        dans le résultat que le supposer. `generer_corpus` refuse d'en produire un tel,
+        mais un Corpus assemblé à la main n'a pas eu à passer par là.
         """
-        familles = {identite.famille for identite in panel}
+        familles = panel.familles()
         return [
             entretien
             for entretien in self.entretiens

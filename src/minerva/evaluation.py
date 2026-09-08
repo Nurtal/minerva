@@ -8,7 +8,15 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from minerva.domaine import AxeDeStyle, Entretien, Fiche, IdentiteModele, Propriete, Style
+from minerva.domaine import (
+    AxeDeStyle,
+    Entretien,
+    Fiche,
+    IdentiteModele,
+    Panel,
+    Propriete,
+    Style,
+)
 from minerva.registre import RegistreDItems
 
 PaireFiches = tuple[Fiche, Fiche]
@@ -196,7 +204,7 @@ class Contamination(RuntimeError):
 
 
 class PanelIncomplet(ValueError):
-    """Le panel ne contient pas le détecteur qu'on évalue — il n'est donc pas l'ensemble
+    """Le panel ne couvre pas le détecteur qu'on évalue — il n'est donc pas l'ensemble
     des détecteurs, et la partition neutre calculée à partir de lui n'en est pas une."""
 
 
@@ -271,9 +279,33 @@ class EntretienEvalue:
         )
 
 
+def _refuser_contamination(
+    detecteur: IdentiteModele, entretiens: Sequence[EntretienEvalue]
+) -> None:
+    """Refuse les Entretiens que le détecteur a lui-même écrits.
+
+    Partagée par toutes les entrées publiques qui évaluent un détecteur nommé : la règle
+    ne doit pas dépendre de la porte par laquelle on entre. L'appartenance se lit avec
+    `est_le_meme_que`, qui se trompe du côté sûr — un nom qui en recouvre un autre est
+    tenu pour le même modèle, quitte à refuser une évaluation qui aurait été licite.
+    """
+    contaminants = sorted(
+        {
+            entretien.generateur.nom
+            for entretien in entretiens
+            if entretien.generateur.est_le_meme_que(detecteur)
+        }
+    )
+    if contaminants:
+        raise Contamination(
+            f"{detecteur.nom} ne peut pas être évalué sur des Entretiens écrits par "
+            f"{', '.join(contaminants)} — c'est lui-même"
+        )
+
+
 def evaluer_par_provenance(
     detecteur: IdentiteModele,
-    panel: Sequence[IdentiteModele],
+    panel: Panel,
     entretiens: Sequence[EntretienEvalue],
     registre: RegistreDItems,
 ) -> MesuresParProvenance:
@@ -288,33 +320,23 @@ def evaluer_par_provenance(
     propres régularités et l'on mesurerait une auto-cohérence en croyant mesurer une
     exactitude.
 
-    Refuse aussi un panel où le détecteur ne figure pas. C'est la partition neutre qui en
-    dépend : elle se lit comme « écrite par personne du panel », ce qui ne vaut que si le
-    panel est bien l'ensemble des détecteurs. Un détecteur oublié y ferait entrer sa propre
-    famille, et la référence propre serait mesurée avec ce qu'elle sert à mesurer.
+    Refuse aussi un panel qui ne couvre pas la famille du détecteur. C'est la partition
+    neutre qui en dépend : elle se lit comme « écrite par aucune famille du panel », ce qui
+    ne vaut que si le panel est bien l'ensemble des détecteurs. Un détecteur oublié y ferait
+    entrer sa propre famille, et la référence propre serait mesurée avec ce qu'elle sert à
+    mesurer.
     """
-    if not any(identite.est_le_meme_que(detecteur) for identite in panel):
+    _refuser_contamination(detecteur, entretiens)
+
+    if not panel.couvre(detecteur):
         raise PanelIncomplet(
-            f"{detecteur.nom} ne figure pas au panel "
-            f"({', '.join(sorted(identite.nom for identite in panel)) or 'vide'}) : le panel "
-            "est l'ensemble des détecteurs, et un détecteur manquant fait passer sa famille "
+            f"{detecteur.nom} (famille {detecteur.famille}) n'est couvert par aucun "
+            f"détecteur du panel ({', '.join(sorted(panel.familles()))}) : le panel est "
+            "l'ensemble des détecteurs, et un détecteur manquant fait passer sa famille "
             "pour une référence propre aux yeux de tous les autres"
         )
 
-    contaminants = sorted(
-        {
-            entretien.generateur.nom
-            for entretien in entretiens
-            if entretien.generateur.est_le_meme_que(detecteur)
-        }
-    )
-    if contaminants:
-        raise Contamination(
-            f"{detecteur.nom} ne peut pas être évalué sur des Entretiens écrits par "
-            f"{', '.join(contaminants)} — c'est lui-même"
-        )
-
-    familles_du_panel = {identite.famille for identite in panel}
+    familles_du_panel = panel.familles()
     intra: list[PaireFiches] = []
     croise: list[PaireFiches] = []
     neutre: list[PaireFiches] = []
@@ -336,17 +358,24 @@ def evaluer_par_provenance(
 
 
 def evaluer_par_axe(
-    entretiens: Sequence[EntretienEvalue], registre: RegistreDItems
+    detecteur: IdentiteModele, entretiens: Sequence[EntretienEvalue], registre: RegistreDItems
 ) -> dict[AxeDeStyle, dict[str, Mesures]]:
     """Les mêmes chiffres, ventilés axe par axe puis niveau par niveau.
 
     Un axe de style contrôlé ne sert à rien si les chiffres ne s'y rapportent pas : c'est
     la ventilation qui rend une baisse interprétable.
 
+    Exige le détecteur et refuse ce qu'il a écrit, comme `evaluer_par_provenance` : la
+    règle de non-contamination ne peut pas dépendre de la porte par laquelle on entre.
+    Ventiler par style plutôt que par provenance ne rend pas l'auto-évaluation moins
+    fausse — elle la répartirait simplement sur trois axes.
+
     Attention en comparant deux niveaux : chacun a son propre dénominateur, puisque les
     entrées sans aucun positif y sont écartées séparément (ADR-0005). Deux niveaux dont
     les `items_ecartes` diffèrent ne sont pas directement comparables.
     """
+    _refuser_contamination(detecteur, entretiens)
+
     par_axe: dict[AxeDeStyle, dict[str, Mesures]] = {}
     for axe in AxeDeStyle:
         groupes: dict[str, list[PaireFiches]] = {}

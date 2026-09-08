@@ -22,6 +22,7 @@ from minerva.domaine import (
     Fiche,
     IdentiteModele,
     Locuteur,
+    Panel,
     Retranscription,
     RoleEmpan,
     Style,
@@ -32,6 +33,7 @@ from minerva.evaluation import (
     Contamination,
     EntretienEvalue,
     PanelIncomplet,
+    evaluer_par_axe,
     evaluer_par_provenance,
 )
 from minerva.modele import AdaptateurFactice
@@ -54,6 +56,10 @@ CLAUDE = IdentiteModele(nom="claude-opus-5", famille="anthropic")
 AUTRE_CLAUDE = IdentiteModele(nom="claude-haiku-4-5", famille="anthropic")
 MISTRAL = IdentiteModele(nom="mistral-large", famille="mistral")
 QWEN = IdentiteModele(nom="qwen-3", famille="qwen")
+
+
+def panel(*detecteurs: IdentiteModele) -> Panel:
+    return Panel(detecteurs=detecteurs)
 
 
 def test_une_identite_n_est_ni_anonyme_ni_sans_famille() -> None:
@@ -160,7 +166,7 @@ def test_un_frere_de_famille_n_est_pas_une_reference_propre() -> None:
         entretiens=[entretien_de(CLAUDE), entretien_de(MISTRAL), entretien_de(AUTRE_CLAUDE)]
     )
 
-    neutre = corpus.partition_neutre([CLAUDE])
+    neutre = corpus.partition_neutre(panel(CLAUDE))
 
     assert [entretien.generateur for entretien in neutre] == [MISTRAL]
 
@@ -172,7 +178,7 @@ def test_un_corpus_sans_partition_neutre_le_dit() -> None:
     """
     corpus = CorpusSynthetique(entretiens=[entretien_de(CLAUDE), entretien_de(MISTRAL)])
 
-    assert corpus.partition_neutre([CLAUDE, MISTRAL]) == []
+    assert corpus.partition_neutre(panel(CLAUDE, MISTRAL)) == []
 
 
 def factice(identite: IdentiteModele, entretiens: int = 1) -> AdaptateurFactice:
@@ -191,7 +197,7 @@ def test_un_corpus_dont_aucun_generateur_n_est_etranger_au_panel_est_refuse() ->
             [specification_eteinte()],
             registre_module_a_reduit(),
             [factice(CLAUDE), factice(MISTRAL)],
-            [CLAUDE, MISTRAL],
+            panel(CLAUDE, MISTRAL),
         )
 
 
@@ -205,13 +211,27 @@ def test_un_corpus_genere_porte_sa_partition_neutre() -> None:
         [specification_eteinte()],
         registre_module_a_reduit(),
         [factice(CLAUDE), factice(QWEN)],
-        [CLAUDE, MISTRAL],
+        panel(CLAUDE, MISTRAL),
     )
 
     assert sorted(corpus.partitions()) == ["claude-opus-5", "qwen-3"]
-    assert [entretien.generateur for entretien in corpus.partition_neutre([CLAUDE, MISTRAL])] == [
-        QWEN
-    ]
+    assert [
+        entretien.generateur for entretien in corpus.partition_neutre(panel(CLAUDE, MISTRAL))
+    ] == [QWEN]
+
+
+def test_un_corpus_vide_est_refuse() -> None:
+    """Sans Spécification ni générateur, le Corpus ne porte aucune partition.
+
+    Donc aucune partition neutre. Le dire ici vaut mieux que de rendre un Corpus vide
+    dont `partition_neutre` se contenterait de ne rien tirer — le benchmark se croirait
+    propre pour la seule raison qu'il n'a rien mesuré.
+    """
+    with pytest.raises(CorpusSansReferencePropre, match="aucune partition"):
+        generer_corpus([], registre_module_a_reduit(), [factice(QWEN)], panel(CLAUDE))
+
+    with pytest.raises(CorpusSansReferencePropre, match="aucune partition"):
+        generer_corpus([specification_eteinte()], registre_module_a_reduit(), [], panel(CLAUDE))
 
 
 def fiche(**etats: tuple[bool, bool]) -> Fiche:
@@ -244,7 +264,7 @@ def test_un_modele_ne_peut_pas_etre_evalue_sur_ce_qu_il_a_ecrit() -> None:
     with pytest.raises(Contamination, match="claude-opus-5"):
         evaluer_par_provenance(
             CLAUDE,
-            [CLAUDE, MISTRAL],
+            panel(CLAUDE, MISTRAL),
             [evalue(CLAUDE, fiche(A1=(True, True)))],
             registre_plat("A1"),
         )
@@ -260,24 +280,64 @@ def test_un_detecteur_absent_du_panel_est_refuse() -> None:
     """
     with pytest.raises(PanelIncomplet, match="claude-opus-5"):
         evaluer_par_provenance(
-            CLAUDE, [MISTRAL], [evalue(QWEN, fiche(A1=(True, True)))], registre_plat("A1")
+            CLAUDE, panel(MISTRAL), [evalue(QWEN, fiche(A1=(True, True)))], registre_plat("A1")
         )
 
 
-def test_un_detecteur_epingle_figure_au_panel_sous_son_nom_court() -> None:
-    """Le panel nomme un modèle, l'exécution l'épingle à une version. C'est le même.
+def test_un_detecteur_epingle_est_couvert_par_le_panel_qui_nomme_son_modele() -> None:
+    """Le panel nomme un modèle, l'exécution l'épingle à une version. Même famille, couvert.
 
-    Exiger l'égalité stricte obligerait à répéter le numéro de version dans le panel, et
-    la garde tomberait sur une différence d'étiquette plutôt que sur un panel réellement
-    incomplet.
+    La couverture se lit sur la famille et non sur le nom : exiger l'égalité stricte des
+    noms obligerait à répéter le numéro de version dans le panel, et la garde tomberait
+    sur une différence d'étiquette plutôt que sur un panel réellement incomplet.
     """
     epingle = IdentiteModele(nom="claude-opus-5-20250101", famille="anthropic")
 
     scores = evaluer_par_provenance(
-        epingle, [CLAUDE, MISTRAL], [evalue(MISTRAL, fiche(A1=(True, True)))], registre_plat("A1")
+        epingle,
+        panel(CLAUDE, MISTRAL),
+        [evalue(MISTRAL, fiche(A1=(True, True)))],
+        registre_plat("A1"),
     )
 
     assert scores.croise is not None
+
+
+def test_un_nom_qui_en_recouvre_un_autre_ne_tient_pas_lieu_de_couverture() -> None:
+    """Les deux gardes veulent des directions d'erreur opposées, donc pas la même règle.
+
+    `est_le_meme_que` se trompe du côté sûr pour la contamination : tenir deux noms qui se
+    recouvrent pour le même modèle ne fait que refuser une évaluation de trop. Appliquée
+    au panel, la même largesse se retournerait — un détecteur réellement absent passerait
+    parce que son nom en recouvre un autre, et sa famille entière se lirait comme une
+    référence propre. La couverture se lit donc sur la famille.
+    """
+    absent = IdentiteModele(nom="mistral-large", famille="mistral")
+    homonyme = IdentiteModele(nom="mistral-large-2", famille="un-autre-labo")
+
+    assert absent.est_le_meme_que(homonyme), "les noms se recouvrent bel et bien"
+
+    with pytest.raises(PanelIncomplet, match="mistral"):
+        evaluer_par_provenance(
+            absent, panel(homonyme), [evalue(QWEN, fiche(A1=(True, True)))], registre_plat("A1")
+        )
+
+
+def test_un_panel_vide_est_refuse() -> None:
+    """Sans détecteur déclaré, toute partition passerait pour neutre."""
+    with pytest.raises(ValidationError):
+        Panel(detecteurs=())
+
+
+def test_la_ventilation_par_style_refuse_elle_aussi_ce_que_le_detecteur_a_ecrit() -> None:
+    """La règle ne dépend pas de la porte par laquelle on entre.
+
+    Ventiler par style plutôt que par provenance ne rend pas l'auto-évaluation moins
+    fausse : elle la répartirait simplement sur trois axes, où elle serait encore plus
+    difficile à voir. Une garde qu'on contourne en changeant de fonction n'en est pas une.
+    """
+    with pytest.raises(Contamination, match="claude-opus-5"):
+        evaluer_par_axe(CLAUDE, [evalue(CLAUDE, fiche(A1=(True, True)))], registre_plat("A1"))
 
 
 def test_l_ecart_entre_intra_famille_et_croise_mesure_le_biais_de_generation() -> None:
@@ -288,7 +348,7 @@ def test_l_ecart_entre_intra_famille_et_croise_mesure_le_biais_de_generation() -
     """
     scores = evaluer_par_provenance(
         CLAUDE,
-        [CLAUDE, MISTRAL],
+        panel(CLAUDE, MISTRAL),
         [
             evalue(AUTRE_CLAUDE, fiche(A1=(True, True))),
             evalue(MISTRAL, fiche(A1=(False, False))),
@@ -306,7 +366,7 @@ def test_l_ecart_entre_intra_famille_et_croise_mesure_le_biais_de_generation() -
 def test_sans_partition_croisee_l_ecart_n_est_pas_calculable() -> None:
     """Un écart incalculable vaut mieux qu'un zéro, qui se lirait comme « pas de biais »."""
     scores = evaluer_par_provenance(
-        CLAUDE, [CLAUDE], [evalue(AUTRE_CLAUDE, fiche(A1=(True, True)))], registre_plat("A1")
+        CLAUDE, panel(CLAUDE), [evalue(AUTRE_CLAUDE, fiche(A1=(True, True)))], registre_plat("A1")
     )
 
     assert scores.croise is None
@@ -320,15 +380,13 @@ def test_une_partition_etrangere_au_panel_est_la_seule_reference_propre() -> Non
     détecteurs ; un générateur étranger au panel est le seul dont on puisse dire qu'aucun
     détecteur ne lui doit quoi que ce soit.
     """
-    ETRANGER = IdentiteModele(nom="qwen-3", famille="qwen")
-
     scores = evaluer_par_provenance(
         CLAUDE,
-        [CLAUDE, MISTRAL],
+        panel(CLAUDE, MISTRAL),
         [
             evalue(AUTRE_CLAUDE, fiche(A1=(True, True))),
             evalue(MISTRAL, fiche(A1=(True, True))),
-            evalue(ETRANGER, fiche(A1=(True, True))),
+            evalue(QWEN, fiche(A1=(True, True))),
         ],
         registre_plat("A1"),
     )
@@ -348,7 +406,7 @@ def test_un_nom_epingle_ou_de_casse_differente_ne_franchit_pas_la_garde() -> Non
 
     with pytest.raises(Contamination):
         evaluer_par_provenance(
-            CLAUDE, [CLAUDE], [evalue(epingle, fiche(A1=(True, True)))], registre_plat("A1")
+            CLAUDE, panel(CLAUDE), [evalue(epingle, fiche(A1=(True, True)))], registre_plat("A1")
         )
 
 

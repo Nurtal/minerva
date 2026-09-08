@@ -20,7 +20,7 @@ from minerva.domaine import (
     CorpusSynthetique,
     Entretien,
     Fiche,
-    IdentiteModele,
+    Panel,
     Propriete,
     Retranscription,
     Style,
@@ -363,17 +363,28 @@ def generer(
 
 
 def _verifier_reference_propre(
-    generateurs: Sequence[PortModele], panel: Sequence[IdentiteModele]
+    specifications: Sequence[Specification],
+    generateurs: Sequence[PortModele],
+    panel: Panel,
 ) -> None:
     """Le Corpus doit porter une partition qu'aucune famille du panel n'a écrite.
 
     Le contrôle tombe avant le premier appel de modèle, et non après : un Corpus sans
     référence propre est à refaire de bout en bout, et l'apprendre une fois les
     Entretiens écrits n'en sauverait aucun.
+
+    Un Corpus vide est refusé au même titre : sans Spécification ou sans générateur, il
+    ne porte aucune partition, donc aucune partition neutre. Le dire ici vaut mieux que
+    de rendre un Corpus vide dont `partition_neutre` se contenterait de ne rien tirer.
     """
-    familles_du_panel = {identite.famille for identite in panel}
+    if not specifications or not generateurs:
+        raise CorpusSansReferencePropre(
+            "un Corpus sans Spécification ou sans générateur ne porte aucune partition, "
+            "donc aucune référence propre"
+        )
+
     familles_generatrices = {generateur.identite.famille for generateur in generateurs}
-    if familles_generatrices <= familles_du_panel:
+    if familles_generatrices <= panel.familles():
         raise CorpusSansReferencePropre(
             f"aucun générateur étranger au panel : {', '.join(sorted(familles_generatrices))} "
             "sont toutes des familles de détecteurs. Le Corpus n'aurait aucune référence "
@@ -385,7 +396,7 @@ def generer_corpus(
     specifications: Sequence[Specification],
     registre: RegistreDItems,
     generateurs: Sequence[PortModele],
-    panel: Sequence[IdentiteModele],
+    panel: Panel,
 ) -> CorpusSynthetique:
     """Fait réaliser les mêmes Spécifications par chaque générateur.
 
@@ -399,7 +410,7 @@ def generer_corpus(
     génération. Un générateur du panel reste bienvenu — sa partition sert aux autres
     détecteurs — mais il en faut au moins un qui soit étranger à toutes ces familles.
     """
-    _verifier_reference_propre(generateurs, panel)
+    _verifier_reference_propre(specifications, generateurs, panel)
     return CorpusSynthetique(
         entretiens=[
             generer(specification, registre, generateur)

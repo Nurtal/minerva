@@ -12,7 +12,7 @@ import pytest
 
 from minerva.corpus import Specification, generer
 from minerva.detection import detecter
-from minerva.domaine import Fiche, Locuteur, VerdictItem
+from minerva.domaine import Fiche, Locuteur, Panel, VerdictItem
 from minerva.evaluation import EntretienEvalue, evaluer_par_provenance
 from minerva.modele import AdaptateurAnthropic
 from minerva.registre import registre_module_a_reduit
@@ -42,7 +42,7 @@ def test_la_chaine_tourne_contre_un_modele_reel() -> None:
     prediction = detecter(entretien.retranscription, registre, detecteur)
     scores = evaluer_par_provenance(
         detecteur.identite,
-        [detecteur.identite],
+        Panel(detecteurs=(detecteur.identite,)),
         [EntretienEvalue.depuis(entretien, prediction)],
         registre,
     )
