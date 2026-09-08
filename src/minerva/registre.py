@@ -84,12 +84,16 @@ class Porte(BaseModel):
 Porte.model_rebuild()
 
 
-class Provenance(BaseModel):
-    """Une lecture : la source publiée, et le construct qu'on y a lu.
+class Lecture(BaseModel):
+    """Une lecture d'une source publiée : la citation, et le construct qu'on y a lu.
 
     Conserver `construct_lu` à côté de la citation, plutôt que la seule citation, est ce
     qui rend l'écart vérifiable : sans les deux lectures, « les sources divergent » serait
     une affirmation qu'aucun relecteur ne pourrait contrôler sans refaire le travail.
+
+    Nommée « lecture » et non « provenance » : dans MINERVA une provenance est le modèle
+    générateur d'un Entretien (ADR-0004), et réemployer le mot ici ferait croire à un lien
+    entre deux notions qui n'en ont aucun.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -109,7 +113,7 @@ class EntreeDuRegistre(BaseModel):
     module: str
     construct_sonde: str
     """Le construct retenu, exprimé dans nos termes — jamais un libellé du MINI (ADR-0002)."""
-    provenances: tuple[Provenance, ...]
+    lectures: tuple[Lecture, ...]
     """Les lectures dont ce construct est tiré, deux au moins et de sources distinctes.
 
     ADR-0003 veut la reconstruction menée deux fois : une lecture unique ne serait pas une
@@ -117,21 +121,32 @@ class EntreeDuRegistre(BaseModel):
     solide d'un construct disputé.
     """
     ecart: str | None = None
-    """Ce sur quoi les lectures divergent, quand elles divergent.
+    """Ce sur quoi les deux lectures divergent, et rien d'autre.
 
     `None` veut dire « les sources concordent », pas « on n'a pas regardé » — le
-    validateur de double provenance garantit qu'on a regardé. C'est ce champ qui
-    cartographie les Items sur lesquels ne pas tirer de conclusions.
+    validateur de double lecture garantit qu'on a regardé. C'est ce champ qui cartographie
+    les Items sur lesquels ne pas tirer de conclusions.
+
+    Strictement la divergence : une réserve qui ne vient pas d'un désaccord entre les
+    sources va dans `reserve`. Les mélanger rendrait `est_disputee` vrai là où les
+    nosographies s'accordent, et la carte des Items incertains cesserait d'en être une.
+    """
+    reserve: str | None = None
+    """Une réserve sur cette entrée qui ne soit pas un désaccord entre les sources.
+
+    Un héritage de classification, un chevauchement entre Modules de l'instrument : des
+    choses qu'il faut savoir en lisant les chiffres, mais qui ne disent rien de la
+    fidélité de la reconstruction.
     """
 
     @model_validator(mode="after")
     def _reconstruction_menee_deux_fois(self) -> "EntreeDuRegistre":
-        if len(self.provenances) < 2:
+        if len(self.lectures) < 2:
             raise ValueError(
                 f"{self.identifiant} : une entrée cite au moins deux lectures. Une seule "
                 "n'est pas une reconstruction contrôlée, c'est une affirmation (ADR-0003)"
             )
-        sources = [provenance.source for provenance in self.provenances]
+        sources = [provenance.source for provenance in self.lectures]
         if len(set(sources)) < len(sources):
             raise ValueError(
                 f"{self.identifiant} : les lectures doivent venir de sources distinctes. "
@@ -142,14 +157,14 @@ class EntreeDuRegistre(BaseModel):
 
     def sources(self) -> tuple[str, ...]:
         """Les sources citées, dans l'ordre où elles ont été lues."""
-        return tuple(provenance.source for provenance in self.provenances)
+        return tuple(provenance.source for provenance in self.lectures)
 
     def est_disputee(self) -> bool:
-        """Les lectures divergent-elles sur cette entrée ?
+        """Les deux lectures divergent-elles sur cette entrée ?
 
         Interrogeable, et pas seulement lisible : c'est ce qui permettra de ventiler les
         chiffres selon qu'un Item est sûr ou disputé, plutôt que de le découvrir en
-        relisant la prose des sources.
+        relisant la prose des sources. Une `reserve` ne rend pas une entrée disputée.
         """
         return self.ecart is not None
 
@@ -318,226 +333,74 @@ CIM = (
     "« The development and initial validation of self-report measures of ICD-11 "
     "depressive episode… (IDQ) », J Clin Psychol 79(3), 2023, 854-870."
 )
-PHQ9 = (
-    "Kroenke K., Spitzer R. L. & Williams J. B. W., « The PHQ-9: validity of a brief "
-    "depression severity measure », J Gen Intern Med 16(9), 2001, 606-613."
-)
 
 
-def registre_module_a_reduit() -> RegistreDItems:
-    """Trois Items du Module A, le strict nécessaire au tracer bullet.
-
-    Le Module A complet — ses six Items et leurs quinze questions cotées — relève d'un
-    ticket dédié, qui attend la numérotation de l'instrument.
-
-    Chaque entrée est lue deux fois, dans le DSM-5-TR et dans la CIM-11, et l'écart est
-    conservé quand il y en a un (ADR-0003). Les constructs sont exprimés dans nos termes :
-    aucun libellé du MINI ne figure ici (ADR-0002).
-    """
-    return RegistreDItems(
-        qualificatifs=[
-            Qualificatif(
-                identifiant="A_cadre",
-                module="A",
-                construct_sonde=(
-                    "Ancienneté et permanence des troubles : présents depuis au moins deux "
-                    "semaines, la majeure partie du temps, presque tous les jours."
-                ),
-                provenances=(
-                    Provenance(
-                        source=DSM,
-                        construct_lu=(
-                            "Critère A : les symptômes sont présents sur une même période "
-                            "de deux semaines, la majeure partie de la journée, presque "
-                            "tous les jours."
-                        ),
-                    ),
-                    Provenance(
-                        source=CIM,
-                        construct_lu=(
-                            "Cinq symptômes présents conjointement la majeure partie de la "
-                            "journée, presque tous les jours, sur deux semaines."
-                        ),
-                    ),
-                ),
-            )
-        ],
-        portes_de_module={
-            # Le filtre en tête du Module A : humeur dépressive OU perte d'intérêt.
-            # Établi négatif sur les deux, le reste du Module est légitimement écarté.
-            "A": Porte(
-                au_moins=1,
-                parmi=["A1", "A2"],
-                source=(
-                    f"{DSM} L'épisode requiert l'humeur dépressive ou la perte d'intérêt. "
-                    f"Recoupé par : {CIM} La grappe affective porte exactement ces deux "
-                    "symptômes, et au moins un des cinq requis doit en venir — les deux "
-                    "nosographies s'accordent sur la porte, par des chemins différents."
+def _cadre_du_module_a() -> Qualificatif:
+    return Qualificatif(
+        identifiant="A_cadre",
+        module="A",
+        construct_sonde=(
+            "Depuis quand cela dure et à quelle fréquence : au moins deux semaines, la "
+            "plus grande partie du temps, presque chaque jour."
+        ),
+        lectures=(
+            Lecture(
+                source=DSM,
+                construct_lu=(
+                    "Critère A : symptômes présents sur une même période de deux semaines, "
+                    "la majeure partie de la journée, presque tous les jours."
                 ),
             ),
-        },
-        items=[
-            Item(
-                identifiant="A1",
-                module="A",
-                construct_sonde=(
-                    "Humeur dépressive présente la majeure partie de la journée, presque "
-                    "tous les jours, depuis au moins deux semaines."
-                ),
-                provenances=(
-                    Provenance(source=DSM, construct_lu="Critère A1 : humeur dépressive."),
-                    Provenance(
-                        source=CIM,
-                        construct_lu=(
-                            "Premier des deux symptômes de la grappe affective : humeur dépressive."
-                        ),
-                    ),
+            Lecture(
+                source=CIM,
+                construct_lu=(
+                    "Cinq symptômes présents conjointement la majeure partie de la "
+                    "journée, presque tous les jours, sur deux semaines."
                 ),
             ),
-            Item(
-                identifiant="A2",
-                module="A",
-                construct_sonde=(
-                    "Diminution marquée de l'intérêt ou du plaisir pour toutes ou presque "
-                    "toutes les activités, sur la même période."
-                ),
-                provenances=(
-                    Provenance(
-                        source=DSM,
-                        construct_lu=(
-                            "Critère A2 : diminution marquée de l'intérêt ou du plaisir."
-                        ),
-                    ),
-                    Provenance(
-                        source=CIM,
-                        construct_lu=(
-                            "Second des deux symptômes de la grappe affective : diminution "
-                            "de l'intérêt ou du plaisir."
-                        ),
-                    ),
-                ),
-            ),
-            Item(
-                identifiant="A3a",
-                module="A",
-                construct_sonde=(
-                    "Insomnie ou hypersomnie presque tous les jours sur la même période."
-                ),
-                provenances=(
-                    Provenance(
-                        source=DSM,
-                        construct_lu=(
-                            "Critère A4 : insomnie ou hypersomnie, symptôme distinct du "
-                            "critère A3 qui porte l'appétit et le poids."
-                        ),
-                    ),
-                    Provenance(
-                        source=CIM,
-                        construct_lu=(
-                            "Grappe neurovégétative. La liste MMS réunit « modification de "
-                            "l'appétit ou du sommeil » en un seul symptôme ; les CDDR les "
-                            "séparent, d'où dix critères là où la MMS en compte neuf."
-                        ),
-                    ),
-                ),
-                ecart=(
-                    "Le sommeil n'a pas le même grain selon la source. Le DSM-5-TR en fait "
-                    "un critère à part entière, distinct de l'appétit ; la CIM-11 le réunit "
-                    "à l'appétit dans sa liste MMS et ne l'en sépare que dans les CDDR. Un "
-                    "entretien qui n'explore que le sommeil renseigne donc pleinement le "
-                    "critère DSM, et à moitié seulement le symptôme MMS. À ne pas lire "
-                    "comme un item sûr."
-                ),
-            ),
-        ],
+        ),
     )
 
 
-_HYPOTHESE_DE_NUMEROTATION = """\
-La numérotation du MINI n'a pas pu être vérifiée. L'instrument est sous licence, et les
-seules copies intégrales accessibles en ligne sont des republications non autorisées —
-celles-là mêmes que l'ADR-0002 cite comme illégales. La décomposition ci-dessous est donc
-une hypothèse, déclarée comme telle :
-
-- `A1` et `A2` portent les deux symptômes d'entrée, et `A3a` à `A3g` les sept symptômes
-  additionnels. Ce découpage prolonge celui que le dépôt utilisait déjà pour le tracer
-  bullet ; il n'est pas lu dans l'instrument.
-- `A3a` reste le sommeil, comme dans le Registre réduit, alors que le DSM-5-TR place
-  l'appétit avant lui. Conserver l'affectation existante évite une renumérotation qui
-  invaliderait les Corpus déjà produits, mais elle est arbitraire.
-- L'issue #5 annonce six Items et quinze questions cotées. Cette reconstruction porte les
-  neuf critères symptomatiques, soit les seuls que le DSM-5-TR et la CIM-11 définissent
-  explicitement. Le retentissement fonctionnel, la récurrence et les spécificateurs, que
-  l'instrument numérote aussi, ne sont pas reconstruits : aucune des deux sources ne dit
-  comment le MINI les numérote, et les inventer donnerait un Registre faussement complet.
-
-Le jour où une licence est obtenue, la vérification est un diff sur ces identifiants —
-c'est précisément la conséquence qu'ADR-0003 cherchait à préserver.
-"""
+def _porte_du_module_a() -> Porte:
+    return Porte(
+        au_moins=1,
+        parmi=["A1", "A2"],
+        source=(
+            f"{DSM} L'épisode requiert l'humeur dépressive ou la perte d'intérêt. "
+            f"Recoupé par : {CIM} La grappe affective porte exactement ces deux symptômes, "
+            "et au moins un des cinq requis doit en venir — les deux nosographies "
+            "s'accordent sur la porte, par des chemins différents."
+        ),
+    )
 
 
 def registre_module_a() -> RegistreDItems:
     """Le Module A : épisode dépressif caractérisé, neuf critères symptomatiques.
 
     Chaque construct est lu deux fois — DSM-5-TR et CIM-11 — et l'écart conservé quand les
-    nosographies divergent (ADR-0003). Les constructs sont exprimés dans nos termes :
-    aucun libellé du MINI ne figure ici (ADR-0002).
+    nosographies divergent (ADR-0003). Les constructs sont reformulés dans nos termes, et
+    délibérément plus proches de la langue d'un entretien que de celle d'un manuel : ni le
+    MINI (ADR-0002) ni la traduction française du DSM-5-TR ne sont recopiés ici.
 
-    Sur la numérotation, qui est une hypothèse et non une lecture : voir
-    `_HYPOTHESE_DE_NUMEROTATION` juste au-dessus. Le résumé tient en une phrase — le MINI
-    est sous licence, sa numérotation n'a pas pu être vérifiée, et ce découpage prolonge
-    celui du Registre réduit sans être lu dans l'instrument.
+    La numérotation est une hypothèse déclarée, pas une lecture de l'instrument — voir
+    ADR-0007, qui dit ce qui est supposé et ce qu'une licence viendrait corriger.
     """
+    porte_du_module = _porte_du_module_a()
     return RegistreDItems(
-        qualificatifs=[
-            Qualificatif(
-                identifiant="A_cadre",
-                module="A",
-                construct_sonde=(
-                    "Ancienneté et permanence des troubles : présents depuis au moins deux "
-                    "semaines, la majeure partie du temps, presque tous les jours."
-                ),
-                provenances=(
-                    Provenance(
-                        source=DSM,
-                        construct_lu=(
-                            "Critère A : symptômes présents sur une même période de deux "
-                            "semaines, la majeure partie de la journée, presque tous les jours."
-                        ),
-                    ),
-                    Provenance(
-                        source=CIM,
-                        construct_lu=(
-                            "Cinq symptômes présents conjointement la majeure partie de la "
-                            "journée, presque tous les jours, sur deux semaines."
-                        ),
-                    ),
-                ),
-            )
-        ],
-        portes_de_module={
-            "A": Porte(
-                au_moins=1,
-                parmi=["A1", "A2"],
-                source=(
-                    f"{DSM} L'épisode requiert l'humeur dépressive ou la perte d'intérêt. "
-                    f"Recoupé par : {CIM} La grappe affective porte exactement ces deux "
-                    "symptômes, et au moins un des cinq requis doit en venir — les deux "
-                    "nosographies s'accordent sur la porte, par des chemins différents."
-                ),
-            )
-        },
+        qualificatifs=[_cadre_du_module_a()],
+        portes_de_module={"A": porte_du_module},
         items=[
             Item(
                 identifiant="A1",
                 module="A",
                 construct_sonde=(
-                    "Humeur dépressive présente la majeure partie de la journée, presque "
-                    "tous les jours, depuis au moins deux semaines."
+                    "Le patient se sent triste ou abattu, sans répit ou presque, depuis au "
+                    "moins deux semaines."
                 ),
-                provenances=(
-                    Provenance(source=DSM, construct_lu="Critère A1 : humeur dépressive."),
-                    Provenance(
+                lectures=(
+                    Lecture(source=DSM, construct_lu="Critère A1 : humeur dépressive."),
+                    Lecture(
                         source=CIM,
                         construct_lu="Grappe affective, premier symptôme : humeur dépressive.",
                     ),
@@ -547,19 +410,19 @@ def registre_module_a() -> RegistreDItems:
                 identifiant="A2",
                 module="A",
                 construct_sonde=(
-                    "Diminution marquée de l'intérêt ou du plaisir pour toutes ou presque "
-                    "toutes les activités, sur la même période."
+                    "Ce qui procurait du plaisir n'en procure plus, sur presque tout ce que "
+                    "le patient faisait."
                 ),
-                provenances=(
-                    Provenance(
+                lectures=(
+                    Lecture(
                         source=DSM,
                         construct_lu="Critère A2 : diminution marquée de l'intérêt ou du plaisir.",
                     ),
-                    Provenance(
+                    Lecture(
                         source=CIM,
                         construct_lu=(
-                            "Grappe affective, second symptôme : diminution de l'intérêt "
-                            "ou du plaisir."
+                            "Grappe affective, second symptôme : diminution de l'intérêt ou "
+                            "du plaisir."
                         ),
                     ),
                 ),
@@ -568,18 +431,18 @@ def registre_module_a() -> RegistreDItems:
                 identifiant="A3a",
                 module="A",
                 construct_sonde=(
-                    "Insomnie ou hypersomnie presque tous les jours sur la même période."
+                    "Le sommeil est perturbé : le patient dort beaucoup moins, ou beaucoup "
+                    "plus, qu'à son ordinaire."
                 ),
-                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
-                provenances=(
-                    Provenance(
+                lectures=(
+                    Lecture(
                         source=DSM,
                         construct_lu=(
                             "Critère A4 : insomnie ou hypersomnie, symptôme distinct du "
                             "critère A3 qui porte l'appétit et le poids."
                         ),
                     ),
-                    Provenance(
+                    Lecture(
                         source=CIM,
                         construct_lu=(
                             "Grappe neurovégétative. La liste MMS réunit « modification de "
@@ -600,19 +463,18 @@ def registre_module_a() -> RegistreDItems:
                 identifiant="A3b",
                 module="A",
                 construct_sonde=(
-                    "Modification de l'appétit ou variation de poids significative, non "
-                    "intentionnelle, sur la même période."
+                    "L'appétit a changé, ou le poids a bougé sans que le patient l'ait "
+                    "cherché."
                 ),
-                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
-                provenances=(
-                    Provenance(
+                lectures=(
+                    Lecture(
                         source=DSM,
                         construct_lu=(
                             "Critère A3 : perte ou gain de poids significatif, ou "
                             "modification de l'appétit presque tous les jours."
                         ),
                     ),
-                    Provenance(
+                    Lecture(
                         source=CIM,
                         construct_lu=(
                             "Grappe neurovégétative, réuni au sommeil dans la liste MMS et "
@@ -630,16 +492,15 @@ def registre_module_a() -> RegistreDItems:
                 identifiant="A3c",
                 module="A",
                 construct_sonde=(
-                    "Agitation ou ralentissement psychomoteur, observable par autrui et non "
-                    "réduit à un sentiment subjectif."
+                    "Le patient bouge ou parle plus lentement qu'avant, ou au contraire ne "
+                    "tient pas en place — au point que l'entourage le remarque."
                 ),
-                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
-                provenances=(
-                    Provenance(
+                lectures=(
+                    Lecture(
                         source=DSM,
                         construct_lu="Critère A5 : agitation ou ralentissement psychomoteur.",
                     ),
-                    Provenance(
+                    Lecture(
                         source=CIM,
                         construct_lu=(
                             "Grappe neurovégétative : agitation ou ralentissement psychomoteur."
@@ -650,11 +511,10 @@ def registre_module_a() -> RegistreDItems:
             Item(
                 identifiant="A3d",
                 module="A",
-                construct_sonde="Fatigue ou perte d'énergie presque tous les jours.",
-                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
-                provenances=(
-                    Provenance(source=DSM, construct_lu="Critère A6 : fatigue ou perte d'énergie."),
-                    Provenance(
+                construct_sonde="Le patient se sent vidé, sans énergie, presque chaque jour.",
+                lectures=(
+                    Lecture(source=DSM, construct_lu="Critère A6 : fatigue ou perte d'énergie."),
+                    Lecture(
                         source=CIM,
                         construct_lu=(
                             "Grappe neurovégétative : énergie réduite ou épuisement. La "
@@ -663,41 +523,41 @@ def registre_module_a() -> RegistreDItems:
                         ),
                     ),
                 ),
-                ecart=(
-                    "La fatigue a changé de rang entre les révisions de la CIM : symptôme "
-                    "principal en CIM-10, symptôme additionnel en CIM-11, alignée sur le "
-                    "DSM. Les deux sources retenues s'accordent donc aujourd'hui, mais un "
-                    "instrument construit sur la CIM-10 la traiterait comme une question "
-                    "d'entrée. À surveiller si le Registre sert un jour à comparer des "
-                    "entretiens conduits sous l'ancienne classification."
+                reserve=(
+                    "Les deux sources retenues s'accordent, donc aucun écart. Mais la "
+                    "fatigue a changé de rang entre les révisions de la CIM : symptôme "
+                    "principal en CIM-10, additionnel en CIM-11. Un entretien conduit sous "
+                    "l'ancienne classification la traiterait comme une question d'entrée."
                 ),
             ),
             Item(
                 identifiant="A3e",
                 module="A",
                 construct_sonde=(
-                    "Sentiment de dévalorisation, ou culpabilité excessive ou inappropriée."
+                    "Le patient se juge sans valeur, ou s'accuse de choses hors de proportion."
                 ),
-                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
-                provenances=(
-                    Provenance(
+                lectures=(
+                    Lecture(
                         source=DSM,
                         construct_lu=(
                             "Critère A7 : sentiment de dévalorisation ou culpabilité "
-                            "excessive ou inappropriée."
+                            "excessive ou inappropriée. Le désespoir ne figure pas parmi "
+                            "les neuf critères."
                         ),
                     ),
-                    Provenance(
+                    Lecture(
                         source=CIM,
                         construct_lu=(
-                            "Grappe cognitivo-comportementale : faible estime de soi, "
-                            "distincte du désespoir, qui y figure comme symptôme séparé."
+                            "Grappe cognitivo-comportementale : faible estime de soi. "
+                            "L'énumération de Shevlin et al. y porte le désespoir comme "
+                            "symptôme distinct — Parker, qui ne donne que la structure en "
+                            "grappes, ne l'énumère pas."
                         ),
                     ),
                 ),
                 ecart=(
-                    "La CIM-11 porte le désespoir comme symptôme à part entière de sa "
-                    "grappe cognitivo-comportementale ; le DSM-5-TR ne le retient pas comme "
+                    "La CIM-11 porte le désespoir comme symptôme à part entière, distinct "
+                    "de la faible estime de soi ; le DSM-5-TR ne le retient pas comme "
                     "critère. La numérotation de ce Registre étant calée sur le DSM, le "
                     "désespoir n'a aucune case ici : un entretien qui l'explore ne "
                     "renseigne rien de mesurable. C'est le trou de couverture le plus net "
@@ -708,18 +568,17 @@ def registre_module_a() -> RegistreDItems:
                 identifiant="A3f",
                 module="A",
                 construct_sonde=(
-                    "Diminution de l'aptitude à penser ou à se concentrer, ou indécision."
+                    "Penser, se concentrer ou trancher une décision est devenu difficile."
                 ),
-                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
-                provenances=(
-                    Provenance(
+                lectures=(
+                    Lecture(
                         source=DSM,
                         construct_lu=(
                             "Critère A8 : diminution de l'aptitude à penser ou à se "
                             "concentrer, ou indécision."
                         ),
                     ),
-                    Provenance(
+                    Lecture(
                         source=CIM,
                         construct_lu=(
                             "Grappe cognitivo-comportementale : difficultés de concentration."
@@ -731,18 +590,18 @@ def registre_module_a() -> RegistreDItems:
                 identifiant="A3g",
                 module="A",
                 construct_sonde=(
-                    "Pensées de mort récurrentes, idées suicidaires, ou geste ou plan suicidaire."
+                    "La mort revient dans les pensées du patient : envie d'en finir, projet "
+                    "arrêté, ou geste déjà posé."
                 ),
-                porte=Porte(au_moins=1, parmi=["A1", "A2"]),
-                provenances=(
-                    Provenance(
+                lectures=(
+                    Lecture(
                         source=DSM,
                         construct_lu=(
                             "Critère A9 : pensées de mort récurrentes, idées suicidaires "
                             "sans plan précis, tentative, ou plan précis."
                         ),
                     ),
-                    Provenance(
+                    Lecture(
                         source=CIM,
                         construct_lu=(
                             "Grappe cognitivo-comportementale : pensées de mort récurrentes "
@@ -750,13 +609,30 @@ def registre_module_a() -> RegistreDItems:
                         ),
                     ),
                 ),
-                ecart=(
-                    "Le Module B porte le risque suicidaire pour lui-même. Un entretien qui "
-                    "explore le suicide renseigne donc potentiellement une entrée de chaque "
-                    "module, et les empans de preuve se recouvriront. Ce n'est pas un "
-                    "désaccord entre nosographies mais un chevauchement de l'instrument, à "
-                    "trancher quand le Module B entrera au Registre."
+                reserve=(
+                    "Les deux sources s'accordent, donc aucun écart. Mais le Module B porte "
+                    "le risque suicidaire pour lui-même : un entretien qui explore le "
+                    "suicide renseignera une entrée de chaque Module, et les Empans de "
+                    "preuve se recouvriront. Chevauchement de l'instrument, à trancher "
+                    "quand le Module B entrera au Registre."
                 ),
             ),
         ],
+    )
+
+
+def registre_module_a_reduit() -> RegistreDItems:
+    """Trois Items du Module A, le strict nécessaire au tracer bullet.
+
+    Dérivé du Registre complet plutôt que recopié : deux listes tenues à la main auraient
+    divergé, et chacune se présente comme la reconstruction sourcée du même construct. La
+    divergence se serait lue comme un désaccord entre nosographies alors qu'elle n'aurait
+    été qu'une faute de recopie.
+    """
+    gardes = ("A1", "A2", "A3a")
+    complet = registre_module_a()
+    return RegistreDItems(
+        items=[item for item in complet.items if item.identifiant in gardes],
+        qualificatifs=complet.qualificatifs,
+        portes_de_module=complet.portes_de_module,
     )

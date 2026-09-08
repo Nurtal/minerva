@@ -9,14 +9,14 @@ affirmation — et rien ne distinguerait un construct solide d'un construct disp
 import pytest
 from pydantic import ValidationError
 
-from minerva.registre import EntreeDuRegistre, Item, Provenance, registre_module_a_reduit
+from minerva.registre import EntreeDuRegistre, Item, Lecture, registre_module_a_reduit
 
 DSM = "APA, DSM-5-TR (2022), critère A1 de l'épisode dépressif caractérisé."
 CIM = "OMS, CIM-11 (6A70), grappe affective."
 
 
-def provenance(source: str, lu: str = "humeur dépressive") -> Provenance:
-    return Provenance(source=source, construct_lu=lu)
+def lecture(source: str, lu: str = "humeur dépressive") -> Lecture:
+    return Lecture(source=source, construct_lu=lu)
 
 
 def test_une_entree_cite_au_moins_deux_lectures() -> None:
@@ -26,7 +26,7 @@ def test_une_entree_cite_au_moins_deux_lectures() -> None:
             identifiant="A1",
             module="A",
             construct_sonde="humeur dépressive",
-            provenances=(provenance(DSM),),
+            lectures=(lecture(DSM),),
         )
 
 
@@ -41,7 +41,7 @@ def test_deux_lectures_de_la_meme_source_ne_font_pas_une_double_reconstruction()
             identifiant="A1",
             module="A",
             construct_sonde="humeur dépressive",
-            provenances=(provenance(DSM), provenance(DSM, "humeur triste")),
+            lectures=(lecture(DSM), lecture(DSM, "humeur triste")),
         )
 
 
@@ -50,7 +50,7 @@ def test_une_entree_bien_sourcee_est_acceptee() -> None:
         identifiant="A1",
         module="A",
         construct_sonde="humeur dépressive",
-        provenances=(provenance(DSM), provenance(CIM)),
+        lectures=(lecture(DSM), lecture(CIM)),
     )
 
     assert item.sources() == (DSM, CIM)
@@ -67,7 +67,7 @@ def test_chaque_entree_du_registre_est_lue_deux_fois() -> None:
     registre = registre_module_a_reduit()
 
     for entree in registre.entrees():
-        assert len(entree.provenances) >= 2, entree.identifiant
+        assert len(entree.lectures) >= 2, entree.identifiant
         assert len(set(entree.sources())) == len(entree.sources()), entree.identifiant
 
 

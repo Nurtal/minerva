@@ -5,10 +5,10 @@ chaque fichier : ils diffèrent pour de bonnes raisons, et les fondre obligerait
 les assertions qui en dépendent.
 """
 
-from minerva.registre import Item, Porte, Provenance
+from minerva.registre import Item, Lecture, Porte
 
 
-def provenances_de_test(identifiant: str) -> tuple[Provenance, ...]:
+def lectures_de_test(identifiant: str) -> tuple[Lecture, ...]:
     """Deux lectures fictives, juste de quoi satisfaire ADR-0003.
 
     Les tests de mécanique n'ont aucun intérêt clinique : ce qui compte est que la
@@ -16,8 +16,8 @@ def provenances_de_test(identifiant: str) -> tuple[Provenance, ...]:
     inventer une bibliographie.
     """
     return (
-        Provenance(source="fabrique de test A", construct_lu=f"lecture A de {identifiant}"),
-        Provenance(source="fabrique de test B", construct_lu=f"lecture B de {identifiant}"),
+        Lecture(source="fabrique de test A", construct_lu=f"lecture A de {identifiant}"),
+        Lecture(source="fabrique de test B", construct_lu=f"lecture B de {identifiant}"),
     )
 
 
@@ -27,6 +27,6 @@ def item(identifiant: str, module: str = "A", porte: Porte | None = None) -> Ite
         identifiant=identifiant,
         module=module,
         construct_sonde=f"construct de {identifiant}",
-        provenances=provenances_de_test(identifiant),
+        lectures=lectures_de_test(identifiant),
         porte=porte,
     )

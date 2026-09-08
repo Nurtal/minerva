@@ -23,7 +23,7 @@ from minerva.domaine import (
 from minerva.evaluation import evaluer
 from minerva.modele import AdaptateurFactice
 from minerva.registre import Qualificatif, RegistreDItems, registre_module_a_reduit
-from tests.fabriques import item, provenances_de_test
+from tests.fabriques import item, lectures_de_test
 
 
 def registre() -> RegistreDItems:
@@ -34,7 +34,7 @@ def registre() -> RegistreDItems:
                 identifiant="A_cadre",
                 module="A",
                 construct_sonde="ancienneté des troubles : au moins deux semaines",
-                provenances=provenances_de_test("test"),
+                lectures=lectures_de_test("test"),
             )
         ],
     )
@@ -191,13 +191,13 @@ def test_deux_qualificatifs_sur_un_meme_module_sont_refuses() -> None:
                     identifiant="A_cadre",
                     module="A",
                     construct_sonde="durée",
-                    provenances=provenances_de_test("A_cadre"),
+                    lectures=lectures_de_test("A_cadre"),
                 ),
                 Qualificatif(
                     identifiant="A_frequence",
                     module="A",
                     construct_sonde="fréquence",
-                    provenances=provenances_de_test("test"),
+                    lectures=lectures_de_test("test"),
                 ),
             ],
         )
