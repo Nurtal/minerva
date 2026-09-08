@@ -1,0 +1,105 @@
+"""Les formulations officielles du MINI, fournies à l'exécution — jamais versionnées.
+
+ADR-0002 : le texte du MINI ne peut pas entrer dans le dépôt. Un opérateur disposant
+d'une licence dépose son propre fichier au lancement et obtient un affichage aux
+formulations officielles, sans que le projet redistribue quoi que ce soit.
+
+Ce module ne sert que l'affichage. Un libellé qui remonterait dans un prompt ferait
+dépendre les chiffres du dépôt d'un fichier que le dépôt n'a pas le droit de distribuer,
+et deux opérateurs ne mesureraient plus la même chose. C'est pourquoi rien ici n'est
+importé par `rendu`, `detection` ni `corpus`.
+"""
+
+import json
+from collections.abc import Mapping
+from pathlib import Path
+
+from pydantic import BaseModel
+
+
+class LibellesIllisibles(ValueError):
+    """Un fichier de libellés a été désigné mais ne peut pas être lu.
+
+    Distinct de l'absence de fichier, et c'est tout l'intérêt : ne pas avoir de
+    licence est le mode nominal, tandis qu'un fichier désigné et illisible est une
+    erreur d'exploitation que seul l'opérateur peut corriger.
+    """
+
+
+class Libelles(BaseModel):
+    """Les libellés dont on dispose, indexés par identifiant d'entrée du Registre.
+
+    Vides tant qu'aucun fichier n'est fourni, ce qui est le mode nominal du dépôt : le
+    projet doit tourner sans licence, et l'absence de libellé se lit comme une absence,
+    jamais comme une erreur.
+    """
+
+    par_identifiant: Mapping[str, str] = {}
+    """La table, annoncée en `Mapping` : sans `__setitem__`, le typage refuse d'y écrire.
+
+    Pas de `frozen` sur ce modèle, contrairement à `IdentiteModele` ou `Panel` : ceux-là
+    portent des valeurs et des tuples, là où une table de libellés reste un dictionnaire.
+    Un `frozen` par-dessus ne gèlerait que la réaffectation du champ, laisserait passer
+    la mutation du dictionnaire lui-même, et prétendrait de surcroît que le modèle est
+    hachable — ce qui lèverait à la première tentative. La promesse est donc portée là où
+    elle se vérifie, au typage, plutôt qu'affichée là où elle ne tient pas.
+    """
+
+    @classmethod
+    def absentes(cls) -> "Libelles":
+        """Le cas sans fichier, nommé plutôt que sous-entendu."""
+        return cls()
+
+    def pour(self, identifiant: str) -> str | None:
+        """Le libellé officiel de cette entrée, ou `None` si on ne l'a pas.
+
+        `None` plutôt qu'une chaîne vide ou l'identifiant : l'affichage doit pouvoir
+        choisir son repli, et une chaîne vide se confondrait avec un libellé blanc.
+        """
+        return self.par_identifiant.get(identifiant)
+
+
+def charger(chemin: Path) -> Libelles:
+    """Lit un fichier de libellés déposé par un opérateur licencié.
+
+    Un objet JSON plat, identifiant d'entrée vers formulation officielle.
+
+    Se plaint plutôt que de se rabattre sur l'absence : l'opérateur qui a désigné un
+    fichier croirait lire les formulations officielles alors qu'il lirait des replis, et
+    rien à l'écran ne l'en avertirait. L'absence de fichier se dit `Libelles.absentes()`,
+    et elle se dit à l'appel, pas par accident.
+
+    Un identifiant que le Registre ne connaît pas est accepté sans bruit : un fichier
+    sous licence couvre les dix-sept Modules du MINI là où le Registre n'en porte que
+    deux, et refuser le surplus rendrait tout fichier réel inutilisable.
+    """
+    try:
+        brut = chemin.read_text(encoding="utf-8")
+    except FileNotFoundError as absent:
+        raise LibellesIllisibles(f"fichier de libellés introuvable : {chemin}") from absent
+    except OSError as illisible:
+        raise LibellesIllisibles(
+            f"fichier de libellés illisible : {chemin} ({illisible.strerror})"
+        ) from illisible
+
+    try:
+        contenu = json.loads(brut)
+    except json.JSONDecodeError as malforme:
+        raise LibellesIllisibles(f"{chemin} n'est pas du JSON valide : {malforme}") from malforme
+
+    if not isinstance(contenu, dict):
+        raise LibellesIllisibles(
+            f"{chemin} doit porter un objet JSON plat — identifiant vers libellé — "
+            f"et non {type(contenu).__name__}"
+        )
+
+    non_textuels = sorted(
+        identifiant for identifiant, libelle in contenu.items() if not isinstance(libelle, str)
+    )
+    if non_textuels:
+        raise LibellesIllisibles(
+            f"{chemin} : un libellé doit être une chaîne, ce qui n'est pas le cas de "
+            f"{', '.join(non_textuels)}"
+        )
+
+    return Libelles(par_identifiant=contenu)
