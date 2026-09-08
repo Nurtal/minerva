@@ -4,6 +4,11 @@ ADR-0002 : le texte du MINI ne peut pas entrer dans le dépôt. Un opérateur di
 d'une licence dépose son propre fichier au lancement et obtient un affichage aux
 formulations officielles, sans que le projet redistribue quoi que ce soit.
 
+C'est aussi ici que se lit la désignation faite au lancement : `depuis_l_environnement`
+est le seul endroit du dépôt qui consulte l'environnement du processus, et il le fait
+faute de racine de composition — le projet n'a pas d'exécutable, #1 les mettant hors
+périmètre.
+
 Ce module ne sert que l'affichage. Un libellé qui remonterait dans un prompt ferait
 dépendre les chiffres du dépôt d'un fichier que le dépôt n'a pas le droit de distribuer,
 et deux opérateurs ne mesureraient plus la même chose. C'est pourquoi rien ici n'est
@@ -11,10 +16,19 @@ importé par `rendu`, `detection` ni `corpus`.
 """
 
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
 from pydantic import BaseModel
+
+VARIABLE_LIBELLES = "MINERVA_LIBELLES"
+"""La variable d'environnement où un opérateur licencié désigne son fichier.
+
+Le démarrage d'un processus, et non une interface : le dépôt n'en a aucune, et #1 les
+met hors périmètre. C'est le mécanisme le plus léger par lequel « fourni au lancement »
+puisse être autre chose qu'une phrase du README.
+"""
 
 
 class LibellesIllisibles(ValueError):
@@ -103,3 +117,34 @@ def charger(chemin: Path) -> Libelles:
         )
 
     return Libelles(par_identifiant=contenu)
+
+
+def depuis_l_environnement() -> Libelles:
+    """Les libellés désignés au lancement, s'il y en a.
+
+    Variable absente : personne n'a de licence, et c'est le mode nominal du dépôt — on
+    rend `Libelles.absentes()` sans rien dire.
+
+    Variable posée mais vide : ce n'est pas la même chose, et les confondre coûterait
+    cher. `export MINERVA_LIBELLES=$CHEMIN` avec `$CHEMIN` non défini laisse une variable
+    posée et vide ; l'opérateur croit avoir désigné ses libellés et lirait des replis
+    sans qu'aucun signe ne l'en avertisse. C'est le même refus que dans `charger`, appuyé
+    plus fort : un chemin posé dans l'environnement se relit rarement.
+    """
+    designe = os.environ.get(VARIABLE_LIBELLES)
+    if designe is None:
+        return Libelles.absentes()
+
+    # Normalisé une seule fois, puis utilisé tel quel : contrôler la valeur rognée et
+    # ouvrir la valeur brute ferait échouer « MINERVA_LIBELLES=" f.json " » sur un chemin
+    # dont les espaces sont invisibles à l'écran. Un fichier réellement nommé avec des
+    # espaces de bord devient de ce fait inatteignable par cette variable ; l'espace
+    # accidentel — une fin de ligne, un `.env` généreux — est mille fois plus fréquent.
+    designe = designe.strip()
+    if not designe:
+        raise LibellesIllisibles(
+            f"{VARIABLE_LIBELLES} est posée mais vide : désigner un fichier de libellés "
+            "et n'en nommer aucun laisserait lire des replis à qui croit lire les "
+            f"formulations officielles. Nommez le fichier, ou retirez {VARIABLE_LIBELLES}"
+        )
+    return charger(Path(designe))
