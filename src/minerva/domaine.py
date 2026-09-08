@@ -191,8 +191,21 @@ class IdentiteModele(BaseModel):
     @field_validator("nom", "famille", mode="after")
     @classmethod
     def _normaliser(cls, valeur: str) -> str:
-        """Casse et espaces ne doivent pas décider d'une contamination."""
-        return valeur.strip().casefold()
+        """Casse et espaces ne doivent pas décider d'une contamination.
+
+        Une valeur qui ne survit pas à la normalisation est refusée, et pas conservée
+        vide : les deux gardes de la règle ne tiennent que par ces chaînes. Un nom vide
+        est préfixe de tous les autres, donc `est_le_meme_que` vaut alors vrai contre
+        n'importe qui ; une famille vide range dans une même partition des modèles
+        étrangers l'un à l'autre.
+        """
+        normalisee = valeur.strip().casefold()
+        if not normalisee:
+            raise ValueError(
+                "une identité de modèle ne peut être ni anonyme ni sans famille : la règle "
+                "de non-contamination se lit entièrement sur ces deux chaînes"
+            )
+        return normalisee
 
     def est_le_meme_que(self, autre: "IdentiteModele") -> bool:
         """Deux identités désignent-elles le même modèle ?

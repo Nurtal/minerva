@@ -24,6 +24,7 @@ from minerva.domaine import (
     EmpanDePreuve,
     Entretien,
     Fiche,
+    IdentiteModele,
     Locuteur,
     Loquacite,
     Retranscription,
@@ -33,7 +34,6 @@ from minerva.domaine import (
     VerdictItem,
 )
 from minerva.evaluation import EntretienEvalue, evaluer, evaluer_par_axe
-from minerva.domaine import IdentiteModele
 from minerva.modele import AdaptateurFactice, ReponseIncoherente
 from minerva.registre import RegistreDItems, registre_module_a_reduit
 from tests.fabriques import item

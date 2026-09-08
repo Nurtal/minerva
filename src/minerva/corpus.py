@@ -14,7 +14,7 @@ et des Empans pointant sur les Tours d'un autre Module.
 from collections.abc import Sequence
 from enum import StrEnum
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 
 from minerva.domaine import (
     CorpusSynthetique,
@@ -37,6 +37,10 @@ class SpecificationIncoherente(ValueError):
 
 class GenerationInfidele(RuntimeError):
     """L'Entretien produit ne réalise pas la Spécification qui l'a commandé."""
+
+
+class CorpusSansReferencePropre(ValueError):
+    """Aucun générateur n'est étranger aux familles du panel — le Corpus n'a pas de neutre."""
 
 
 class NaturePhenomene(StrEnum):
@@ -358,10 +362,30 @@ def generer(
     )
 
 
+def _verifier_reference_propre(
+    generateurs: Sequence[PortModele], panel: Sequence[IdentiteModele]
+) -> None:
+    """Le Corpus doit porter une partition qu'aucune famille du panel n'a écrite.
+
+    Le contrôle tombe avant le premier appel de modèle, et non après : un Corpus sans
+    référence propre est à refaire de bout en bout, et l'apprendre une fois les
+    Entretiens écrits n'en sauverait aucun.
+    """
+    familles_du_panel = {identite.famille for identite in panel}
+    familles_generatrices = {generateur.identite.famille for generateur in generateurs}
+    if familles_generatrices <= familles_du_panel:
+        raise CorpusSansReferencePropre(
+            f"aucun générateur étranger au panel : {', '.join(sorted(familles_generatrices))} "
+            "sont toutes des familles de détecteurs. Le Corpus n'aurait aucune référence "
+            "propre, et l'on mesurerait le biais de génération avec le biais lui-même"
+        )
+
+
 def generer_corpus(
     specifications: Sequence[Specification],
     registre: RegistreDItems,
     generateurs: Sequence[PortModele],
+    panel: Sequence[IdentiteModele],
 ) -> CorpusSynthetique:
     """Fait réaliser les mêmes Spécifications par chaque générateur.
 
@@ -369,7 +393,13 @@ def generer_corpus(
     difficultés imposées, mêmes axes de style. C'est ce qui rend l'écart entre partitions
     attribuable au générateur plutôt qu'au tirage, et donc lisible comme un biais de
     génération.
+
+    Le panel des détecteurs est exigé ici, et pas seulement au moment d'évaluer : la
+    partition neutre est une propriété du Corpus, et l'ADR-0004 la veut posée dès la
+    génération. Un générateur du panel reste bienvenu — sa partition sert aux autres
+    détecteurs — mais il en faut au moins un qui soit étranger à toutes ces familles.
     """
+    _verifier_reference_propre(generateurs, panel)
     return CorpusSynthetique(
         entretiens=[
             generer(specification, registre, generateur)

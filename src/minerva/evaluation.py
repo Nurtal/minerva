@@ -195,6 +195,11 @@ class Contamination(RuntimeError):
     """On a voulu évaluer un modèle sur des Entretiens qu'il a lui-même écrits."""
 
 
+class PanelIncomplet(ValueError):
+    """Le panel ne contient pas le détecteur qu'on évalue — il n'est donc pas l'ensemble
+    des détecteurs, et la partition neutre calculée à partir de lui n'en est pas une."""
+
+
 @dataclass(frozen=True)
 class MesuresParProvenance:
     """Les chiffres d'un détecteur selon la parenté de qui a écrit ce qu'il lit.
@@ -282,7 +287,20 @@ def evaluer_par_provenance(
     n'en diffère que par la casse ou par une version épinglée : là, il retrouverait ses
     propres régularités et l'on mesurerait une auto-cohérence en croyant mesurer une
     exactitude.
+
+    Refuse aussi un panel où le détecteur ne figure pas. C'est la partition neutre qui en
+    dépend : elle se lit comme « écrite par personne du panel », ce qui ne vaut que si le
+    panel est bien l'ensemble des détecteurs. Un détecteur oublié y ferait entrer sa propre
+    famille, et la référence propre serait mesurée avec ce qu'elle sert à mesurer.
     """
+    if not any(identite.est_le_meme_que(detecteur) for identite in panel):
+        raise PanelIncomplet(
+            f"{detecteur.nom} ne figure pas au panel "
+            f"({', '.join(sorted(identite.nom for identite in panel)) or 'vide'}) : le panel "
+            "est l'ensemble des détecteurs, et un détecteur manquant fait passer sa famille "
+            "pour une référence propre aux yeux de tous les autres"
+        )
+
     contaminants = sorted(
         {
             entretien.generateur.nom

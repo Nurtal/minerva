@@ -9,7 +9,12 @@ au moment de l'analyse.
 import pytest
 from pydantic import ValidationError
 
-from minerva.corpus import Specification, generer
+from minerva.corpus import (
+    CorpusSansReferencePropre,
+    Specification,
+    generer,
+    generer_corpus,
+)
 from minerva.domaine import (
     CorpusSynthetique,
     EmpanDePreuve,
@@ -23,7 +28,12 @@ from minerva.domaine import (
     TourDeParole,
     VerdictItem,
 )
-from minerva.evaluation import Contamination, EntretienEvalue, evaluer_par_provenance
+from minerva.evaluation import (
+    Contamination,
+    EntretienEvalue,
+    PanelIncomplet,
+    evaluer_par_provenance,
+)
 from minerva.modele import AdaptateurFactice
 from minerva.registre import RegistreDItems, registre_module_a_reduit
 from tests.fabriques import item
@@ -43,6 +53,22 @@ TOUT_ETEINT = {
 CLAUDE = IdentiteModele(nom="claude-opus-5", famille="anthropic")
 AUTRE_CLAUDE = IdentiteModele(nom="claude-haiku-4-5", famille="anthropic")
 MISTRAL = IdentiteModele(nom="mistral-large", famille="mistral")
+QWEN = IdentiteModele(nom="qwen-3", famille="qwen")
+
+
+def test_une_identite_n_est_ni_anonyme_ni_sans_famille() -> None:
+    """Les deux gardes de la règle reposent sur ces deux chaînes ; vides, elles cèdent.
+
+    Un nom vide est préfixe de tous les autres : `est_le_meme_que` devient vrai contre
+    n'importe qui, et un tel détecteur franchit le contrôle de panel quel que soit le
+    panel. Une famille vide range dans une même partition des modèles qui n'ont rien à
+    voir, et les fait passer pour parents.
+    """
+    with pytest.raises(ValidationError):
+        IdentiteModele(nom="   ", famille="anthropic")
+
+    with pytest.raises(ValidationError):
+        IdentiteModele(nom="claude-opus-5", famille="")
 
 
 def specification_eteinte() -> Specification:
@@ -149,6 +175,45 @@ def test_un_corpus_sans_partition_neutre_le_dit() -> None:
     assert corpus.partition_neutre([CLAUDE, MISTRAL]) == []
 
 
+def factice(identite: IdentiteModele, entretiens: int = 1) -> AdaptateurFactice:
+    return AdaptateurFactice([entretien_vide() for _ in range(entretiens)], identite=identite)
+
+
+def test_un_corpus_dont_aucun_generateur_n_est_etranger_au_panel_est_refuse() -> None:
+    """La contrainte se pose à la génération, pas au moment de l'analyse.
+
+    Un Corpus dont chaque partition est parente d'un détecteur n'a aucune référence
+    propre. Le produire quand même donnerait un benchmark qu'on croit propre alors qu'il
+    ne l'est pas, et le défaut ne se verrait qu'à la lecture des chiffres — trop tard.
+    """
+    with pytest.raises(CorpusSansReferencePropre, match="anthropic, mistral"):
+        generer_corpus(
+            [specification_eteinte()],
+            registre_module_a_reduit(),
+            [factice(CLAUDE), factice(MISTRAL)],
+            [CLAUDE, MISTRAL],
+        )
+
+
+def test_un_corpus_genere_porte_sa_partition_neutre() -> None:
+    """Un générateur du panel reste bienvenu, du moment qu'un autre lui est étranger.
+
+    Sa partition sert aux détecteurs des autres familles ; l'exclure priverait le
+    benchmark de son écart intra-famille, qui est justement ce qu'on cherche à lire.
+    """
+    corpus = generer_corpus(
+        [specification_eteinte()],
+        registre_module_a_reduit(),
+        [factice(CLAUDE), factice(QWEN)],
+        [CLAUDE, MISTRAL],
+    )
+
+    assert sorted(corpus.partitions()) == ["claude-opus-5", "qwen-3"]
+    assert [entretien.generateur for entretien in corpus.partition_neutre([CLAUDE, MISTRAL])] == [
+        QWEN
+    ]
+
+
 def fiche(**etats: tuple[bool, bool]) -> Fiche:
     return Fiche(
         verdicts=[
@@ -183,6 +248,36 @@ def test_un_modele_ne_peut_pas_etre_evalue_sur_ce_qu_il_a_ecrit() -> None:
             [evalue(CLAUDE, fiche(A1=(True, True)))],
             registre_plat("A1"),
         )
+
+
+def test_un_detecteur_absent_du_panel_est_refuse() -> None:
+    """Le panel est l'ensemble des détecteurs, pas une liste au choix de l'appelant.
+
+    Un détecteur qui n'y figure pas trahit un panel incomplet, et c'est la partition
+    neutre qui en paie le prix : les Entretiens écrits par la famille du détecteur oublié
+    passent pour une référence propre aux yeux de tous les autres détecteurs. On mesurerait
+    alors le biais de génération avec le biais lui-même, silencieusement.
+    """
+    with pytest.raises(PanelIncomplet, match="claude-opus-5"):
+        evaluer_par_provenance(
+            CLAUDE, [MISTRAL], [evalue(QWEN, fiche(A1=(True, True)))], registre_plat("A1")
+        )
+
+
+def test_un_detecteur_epingle_figure_au_panel_sous_son_nom_court() -> None:
+    """Le panel nomme un modèle, l'exécution l'épingle à une version. C'est le même.
+
+    Exiger l'égalité stricte obligerait à répéter le numéro de version dans le panel, et
+    la garde tomberait sur une différence d'étiquette plutôt que sur un panel réellement
+    incomplet.
+    """
+    epingle = IdentiteModele(nom="claude-opus-5-20250101", famille="anthropic")
+
+    scores = evaluer_par_provenance(
+        epingle, [CLAUDE, MISTRAL], [evalue(MISTRAL, fiche(A1=(True, True)))], registre_plat("A1")
+    )
+
+    assert scores.croise is not None
 
 
 def test_l_ecart_entre_intra_famille_et_croise_mesure_le_biais_de_generation() -> None:
