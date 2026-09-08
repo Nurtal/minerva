@@ -11,7 +11,7 @@ MINI, et non la couverture du MINI.
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from minerva.domaine import Polarite
 
@@ -84,17 +84,74 @@ class Porte(BaseModel):
 Porte.model_rebuild()
 
 
+class Provenance(BaseModel):
+    """Une lecture : la source publiée, et le construct qu'on y a lu.
+
+    Conserver `construct_lu` à côté de la citation, plutôt que la seule citation, est ce
+    qui rend l'écart vérifiable : sans les deux lectures, « les sources divergent » serait
+    une affirmation qu'aucun relecteur ne pourrait contrôler sans refaire le travail.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source: str
+    construct_lu: str
+
+
 class EntreeDuRegistre(BaseModel):
     """Ce que toute entrée du Registre porte, quelle que soit sa nature.
 
-    La source est exigée ici et nulle part ailleurs : c'est ADR-0003 appliqué en un seul
-    endroit plutôt que redit à chaque type.
+    Les provenances sont exigées ici et nulle part ailleurs : c'est ADR-0003 appliqué en
+    un seul endroit plutôt que redit à chaque type.
     """
 
     identifiant: str
     module: str
     construct_sonde: str
-    source: str
+    """Le construct retenu, exprimé dans nos termes — jamais un libellé du MINI (ADR-0002)."""
+    provenances: tuple[Provenance, ...]
+    """Les lectures dont ce construct est tiré, deux au moins et de sources distinctes.
+
+    ADR-0003 veut la reconstruction menée deux fois : une lecture unique ne serait pas une
+    reconstruction contrôlée mais une affirmation, et rien ne distinguerait un construct
+    solide d'un construct disputé.
+    """
+    ecart: str | None = None
+    """Ce sur quoi les lectures divergent, quand elles divergent.
+
+    `None` veut dire « les sources concordent », pas « on n'a pas regardé » — le
+    validateur de double provenance garantit qu'on a regardé. C'est ce champ qui
+    cartographie les Items sur lesquels ne pas tirer de conclusions.
+    """
+
+    @model_validator(mode="after")
+    def _reconstruction_menee_deux_fois(self) -> "EntreeDuRegistre":
+        if len(self.provenances) < 2:
+            raise ValueError(
+                f"{self.identifiant} : une entrée cite au moins deux lectures. Une seule "
+                "n'est pas une reconstruction contrôlée, c'est une affirmation (ADR-0003)"
+            )
+        sources = [provenance.source for provenance in self.provenances]
+        if len(set(sources)) < len(sources):
+            raise ValueError(
+                f"{self.identifiant} : les lectures doivent venir de sources distinctes. "
+                "Relire deux fois le même texte mesure la constance du lecteur, pas le "
+                "désaccord des nosographies (ADR-0003)"
+            )
+        return self
+
+    def sources(self) -> tuple[str, ...]:
+        """Les sources citées, dans l'ordre où elles ont été lues."""
+        return tuple(provenance.source for provenance in self.provenances)
+
+    def est_disputee(self) -> bool:
+        """Les lectures divergent-elles sur cette entrée ?
+
+        Interrogeable, et pas seulement lisible : c'est ce qui permettra de ventiler les
+        chiffres selon qu'un Item est sûr ou disputé, plutôt que de le découvrir en
+        relisant la prose des sources.
+        """
+        return self.ecart is not None
 
 
 class Item(EntreeDuRegistre):
@@ -247,11 +304,35 @@ class RegistreDItems(BaseModel):
         return identifiants + ([qualificatif.identifiant] if qualificatif else [])
 
 
+DSM = (
+    "APA, DSM-5-TR (2022), critères A1-A9 de l'épisode dépressif caractérisé : cinq "
+    "symptômes ou plus sur deux semaines, dont au moins l'humeur dépressive ou la perte "
+    "d'intérêt."
+)
+CIM = (
+    "OMS, CIM-11 (6A70), épisode dépressif. Structure lue chez Parker G., « A critique of "
+    "ICD-11 criteria for the mood disorders », Aust N Z J Psychiatry 59(8), 2025, "
+    "674-678 : dix critères CDDR en trois grappes — deux affectives, quatre "
+    "cognitivo-comportementales, quatre neurovégétatives — dont cinq requis, au moins un "
+    "de la grappe affective. Énumération des symptômes lue chez Shevlin M. et al., "
+    "« The development and initial validation of self-report measures of ICD-11 "
+    "depressive episode… (IDQ) », J Clin Psychol 79(3), 2023, 854-870."
+)
+PHQ9 = (
+    "Kroenke K., Spitzer R. L. & Williams J. B. W., « The PHQ-9: validity of a brief "
+    "depression severity measure », J Gen Intern Med 16(9), 2001, 606-613."
+)
+
+
 def registre_module_a_reduit() -> RegistreDItems:
     """Trois Items du Module A, le strict nécessaire au tracer bullet.
 
     Le Module A complet — ses six Items et leurs quinze questions cotées — relève d'un
-    ticket dédié, avec double reconstruction et contrôle croisé contre le PHQ-9.
+    ticket dédié, qui attend la numérotation de l'instrument.
+
+    Chaque entrée est lue deux fois, dans le DSM-5-TR et dans la CIM-11, et l'écart est
+    conservé quand il y en a un (ADR-0003). Les constructs sont exprimés dans nos termes :
+    aucun libellé du MINI ne figure ici (ADR-0002).
     """
     return RegistreDItems(
         qualificatifs=[
@@ -262,9 +343,23 @@ def registre_module_a_reduit() -> RegistreDItems:
                     "Ancienneté et permanence des troubles : présents depuis au moins deux "
                     "semaines, la majeure partie du temps, presque tous les jours."
                 ),
-                source="APA, DSM-5-TR (2022), critère A de l'épisode dépressif caractérisé : "
-                "la durée et la fréquence conditionnent la cotation de chaque symptôme du "
-                "module ; recoupé par la consigne du PHQ-9 sur les deux dernières semaines.",
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A : les symptômes sont présents sur une même période "
+                            "de deux semaines, la majeure partie de la journée, presque "
+                            "tous les jours."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Cinq symptômes présents conjointement la majeure partie de la "
+                            "journée, presque tous les jours, sur deux semaines."
+                        ),
+                    ),
+                ),
             )
         ],
         portes_de_module={
@@ -273,9 +368,12 @@ def registre_module_a_reduit() -> RegistreDItems:
             "A": Porte(
                 au_moins=1,
                 parmi=["A1", "A2"],
-                source="APA, DSM-5-TR (2022) : l'épisode dépressif caractérisé requiert "
-                "l'humeur dépressive ou la perte d'intérêt ; structure de la question de "
-                "filtre en tête de module.",
+                source=(
+                    f"{DSM} L'épisode requiert l'humeur dépressive ou la perte d'intérêt. "
+                    f"Recoupé par : {CIM} La grappe affective porte exactement ces deux "
+                    "symptômes, et au moins un des cinq requis doit en venir — les deux "
+                    "nosographies s'accordent sur la porte, par des chemins différents."
+                ),
             ),
         },
         items=[
@@ -283,11 +381,18 @@ def registre_module_a_reduit() -> RegistreDItems:
                 identifiant="A1",
                 module="A",
                 construct_sonde=(
-                    "Humeur dépressive présente la majeure partie de la journée, presque tous "
-                    "les jours, depuis au moins deux semaines."
+                    "Humeur dépressive présente la majeure partie de la journée, presque "
+                    "tous les jours, depuis au moins deux semaines."
                 ),
-                source="APA, DSM-5-TR (2022), critère A1 de l'épisode dépressif caractérisé ; "
-                "recoupé par le PHQ-9 item 2 (Kroenke, Spitzer & Williams, 2001).",
+                provenances=(
+                    Provenance(source=DSM, construct_lu="Critère A1 : humeur dépressive."),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Premier des deux symptômes de la grappe affective : humeur dépressive."
+                        ),
+                    ),
+                ),
             ),
             Item(
                 identifiant="A2",
@@ -296,8 +401,21 @@ def registre_module_a_reduit() -> RegistreDItems:
                     "Diminution marquée de l'intérêt ou du plaisir pour toutes ou presque "
                     "toutes les activités, sur la même période."
                 ),
-                source="APA, DSM-5-TR (2022), critère A2 de l'épisode dépressif caractérisé ; "
-                "recoupé par le PHQ-9 item 1 (Kroenke, Spitzer & Williams, 2001).",
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A2 : diminution marquée de l'intérêt ou du plaisir."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Second des deux symptômes de la grappe affective : diminution "
+                            "de l'intérêt ou du plaisir."
+                        ),
+                    ),
+                ),
             ),
             Item(
                 identifiant="A3a",
@@ -305,8 +423,31 @@ def registre_module_a_reduit() -> RegistreDItems:
                 construct_sonde=(
                     "Insomnie ou hypersomnie presque tous les jours sur la même période."
                 ),
-                source="APA, DSM-5-TR (2022), critère A4 de l'épisode dépressif caractérisé ; "
-                "recoupé par le PHQ-9 item 3 (Kroenke, Spitzer & Williams, 2001).",
+                provenances=(
+                    Provenance(
+                        source=DSM,
+                        construct_lu=(
+                            "Critère A4 : insomnie ou hypersomnie, symptôme distinct du "
+                            "critère A3 qui porte l'appétit et le poids."
+                        ),
+                    ),
+                    Provenance(
+                        source=CIM,
+                        construct_lu=(
+                            "Grappe neurovégétative. La liste MMS réunit « modification de "
+                            "l'appétit ou du sommeil » en un seul symptôme ; les CDDR les "
+                            "séparent, d'où dix critères là où la MMS en compte neuf."
+                        ),
+                    ),
+                ),
+                ecart=(
+                    "Le sommeil n'a pas le même grain selon la source. Le DSM-5-TR en fait "
+                    "un critère à part entière, distinct de l'appétit ; la CIM-11 le réunit "
+                    "à l'appétit dans sa liste MMS et ne l'en sépare que dans les CDDR. Un "
+                    "entretien qui n'explore que le sommeil renseigne donc pleinement le "
+                    "critère DSM, et à moitié seulement le symptôme MMS. À ne pas lire "
+                    "comme un item sûr."
+                ),
             ),
         ],
     )
