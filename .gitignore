@@ -13,3 +13,4 @@ __pycache__/
 # dans le dépôt. Un opérateur licencié dépose ses libellés ici, hors versionnement.
 libelles_mini*
 *.mini.json
+mini.json
